@@ -1,0 +1,6 @@
+{
+  "name": "Tattoo & Piercing ERP/POS Studio",
+  "description": "Sistema de gestión ERP/POS, calendario Amelia-style, cierres de caja y auditoría SRI para estudios de tatuajes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
