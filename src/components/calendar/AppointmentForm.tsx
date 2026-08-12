@@ -30,10 +30,16 @@ export default function AppointmentForm({
   isAdmin = false,
   specialistsList = DEFAULT_SPECIALISTS
 }: AppointmentFormProps) {
+  const getLocalTodayStr = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split('T')[0];
+  };
+
   // Main fields
   const [cliente, setCliente] = useState(initialData?.cliente || '');
   const [telefono, setTelefono] = useState(initialData?.telefono || '');
-  const [fecha, setFecha] = useState(initialData?.fecha || new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(initialData?.fecha || getLocalTodayStr());
   const [hora, setHora] = useState(initialData?.hora || '10:00');
   const [especialista, setEspecialista] = useState(initialData?.especialista || specialistsList[0] || 'Ámbar Piercing');
   const [servicio, setServicio] = useState(initialData?.servicio || 'Tatuaje');
@@ -51,13 +57,20 @@ export default function AppointmentForm({
   const [abonado, setAbonado] = useState<number>(initialData?.abonado || 0);
   const [metodoPagoAbono, setMetodoPagoAbono] = useState<string>(initialData?.metodoPagoAbono || initialData?.metodoPagoInicial || 'efectivo');
   const [aplicaComision, setAplicaComision] = useState<boolean>(initialData?.aplicaComision ?? initialData?.captadoPorEspecialista ?? true);
+  
+  // Mixed payment states
+  const [isPagoMixto, setIsPagoMixto] = useState<boolean>(false);
+  const [montoEfectivo, setMontoEfectivo] = useState<number>(0);
+  const [montoTransferencia, setMontoTransferencia] = useState<number>(0);
+  const [montoDeUna, setMontoDeUna] = useState<number>(0);
+  const [montoTarjeta, setMontoTarjeta] = useState<number>(0);
 
   // Parse existing details if editing
   useEffect(() => {
     if (initialData) {
       setCliente(initialData.cliente || '');
       setTelefono(initialData.telefono || '');
-      setFecha(initialData.fecha || new Date().toISOString().split('T')[0]);
+      setFecha(initialData.fecha || getLocalTodayStr());
       setHora(initialData.hora || '10:00');
       setEspecialista(initialData.especialista || specialistsList[0] || 'Ámbar Piercing');
       setServicio(initialData.servicio || 'Tatuaje');
@@ -110,9 +123,19 @@ export default function AppointmentForm({
       detallesFormatted = parts.length > 0 ? parts.join(' | ') : 'Sin detalles específicos';
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const isToday = fecha === todayStr;
     const initialDeposit = Number(abonado) || 0;
+
+    if (isPagoMixto && initialDeposit > 0) {
+      const sum = montoEfectivo + montoTransferencia + montoDeUna + montoTarjeta;
+      if (Math.abs(sum - initialDeposit) > 0.01) {
+        alert('❌ En Pago Mixto, la suma de los montos debe ser igual al Abono Inicial.');
+        return;
+      }
+      detallesFormatted += ` | Pago Mixto: Efectivo ${montoEfectivo.toFixed(2)}, Transferencia ${montoTransferencia.toFixed(2)}, DeUna ${montoDeUna.toFixed(2)}, Tarjeta ${montoTarjeta.toFixed(2)}`;
+    }
+
+    const todayStr = getLocalTodayStr();
+    const isToday = fecha === todayStr;
 
     const appointmentPayload: Appointment = {
       id: initialData?.id || `apt_${Date.now()}`,
@@ -410,58 +433,117 @@ export default function AppointmentForm({
 
         {/* Método de Pago del Anticipo / Abono Inicial */}
         <div className="mt-3">
-          <label className="block text-xs font-bold text-slate-700 mb-1.5">
-            Método de Pago del Anticipo <span className="text-red-500">*</span>
-          </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <button
-              type="button"
-              onClick={() => setMetodoPagoAbono('efectivo')}
-              className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                metodoPagoAbono === 'efectivo' || metodoPagoAbono === 'cash'
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              💵 Efectivo
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetodoPagoAbono('transferencia')}
-              className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                metodoPagoAbono === 'transferencia' || metodoPagoAbono === 'transfer'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              🏦 Transferencia
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetodoPagoAbono('de_una')}
-              className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                metodoPagoAbono === 'de_una'
-                  ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              📱 De Una
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetodoPagoAbono('tarjeta')}
-              className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                metodoPagoAbono === 'tarjeta' || metodoPagoAbono === 'card'
-                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              💳 Tarjeta
-            </button>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-bold text-slate-700">
+              Método de Pago del Anticipo <span className="text-red-500">*</span>
+            </label>
+            <label className="flex items-center gap-1 text-xs font-bold text-blue-600 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={isPagoMixto} 
+                onChange={(e) => {
+                  setIsPagoMixto(e.target.checked);
+                  if (!e.target.checked) setMetodoPagoAbono('efectivo');
+                  else setMetodoPagoAbono('mixto');
+                }}
+                className="w-3.5 h-3.5 accent-blue-600 rounded"
+              />
+              Pago Mixto
+            </label>
           </div>
+          
+          {!isPagoMixto ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => setMetodoPagoAbono('efectivo')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  metodoPagoAbono === 'efectivo' || metodoPagoAbono === 'cash'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                💵 Efectivo
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetodoPagoAbono('transferencia')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  metodoPagoAbono === 'transferencia' || metodoPagoAbono === 'transfer'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                🏦 Transferencia
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetodoPagoAbono('de_una')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  metodoPagoAbono === 'de_una'
+                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                📱 De Una
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetodoPagoAbono('tarjeta')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  metodoPagoAbono === 'tarjeta' || metodoPagoAbono === 'card'
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                💳 Tarjeta
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 bg-blue-50/50 p-2.5 rounded-lg border border-blue-100">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 w-24">💵 Efectivo:</span>
+                <input 
+                  type="number" step="0.01" min="0" value={montoEfectivo || ''} 
+                  onChange={(e) => setMontoEfectivo(parseFloat(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 w-24">🏦 Transferencia:</span>
+                <input 
+                  type="number" step="0.01" min="0" value={montoTransferencia || ''} 
+                  onChange={(e) => setMontoTransferencia(parseFloat(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 w-24">📱 De Una:</span>
+                <input 
+                  type="number" step="0.01" min="0" value={montoDeUna || ''} 
+                  onChange={(e) => setMontoDeUna(parseFloat(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 w-24">💳 Tarjeta:</span>
+                <input 
+                  type="number" step="0.01" min="0" value={montoTarjeta || ''} 
+                  onChange={(e) => setMontoTarjeta(parseFloat(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                />
+              </div>
+              <div className="text-xs font-bold text-right mt-1 flex justify-between items-center">
+                <span className="text-slate-500">Suma total: ${(montoEfectivo + montoTransferencia + montoDeUna + montoTarjeta).toFixed(2)}</span>
+                <span className={(montoEfectivo + montoTransferencia + montoDeUna + montoTarjeta) === abonado ? "text-emerald-600" : "text-rose-600"}>
+                  {(montoEfectivo + montoTransferencia + montoDeUna + montoTarjeta) === abonado ? '✅ Cuadra con el abono' : '❌ No cuadra'}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Mensaje Informativo de Custodia si la cita es en una fecha futura */}
-          {fecha !== new Date().toISOString().split('T')[0] && (
+          {fecha !== getLocalTodayStr() && (
             <div className="p-2.5 bg-amber-50/90 border border-amber-200 rounded-lg text-[11px] font-semibold text-amber-800 flex items-center gap-2 mt-2">
               <span className="text-sm">🔒</span>
               <span>Dinero en Custodia: Este abono no sumará a la caja de hoy por ser una cita futura.</span>

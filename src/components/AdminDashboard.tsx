@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, POSItem, Sale, Appointment, CierreCaja, DynamicPromo, TimeEntry, EmailAlert, Expense } from '../types';
 import { Bell, Wallet, LayoutDashboard, Trash2, PieChart, Users, Plus, ChevronDown, Clock, TrendingUp, AlertTriangle, DollarSign, BarChart3, User as UserIcon, FileText, Download, Lock, Tag, Box, X, Calendar, Edit2, Package, ShieldCheck, Lightbulb, Target, Award } from 'lucide-react';
+import { MonitorCajas } from './MonitorCajas';
 import HistorialVentas from './pos/HistorialVentas';
 import CalendarModule from './calendar/CalendarModule';
 
@@ -31,6 +32,10 @@ interface AdminDashboardProps {
   onAddUser: (user: User) => void;
   onEditUser?: (user: User) => void;
   onDeleteUser?: (id: string) => void;
+  onSaveAppointment?: (apt: Appointment) => void;
+  onAddAbono?: (id: string, monto: number) => void;
+  onDeleteAppointment?: (id: string) => void;
+  onProcesarAbonoACaja?: (apt: Appointment) => void;
 }
 
 export default function AdminDashboard(props: AdminDashboardProps) {
@@ -87,7 +92,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
     dayOfWeek: 'all',
     applicableCategory: 'all',
     requiredQuantity: 1,
-    bundlePrice: 0
+    bundlePrice: 0,
+    discountType: 'fixed' as 'fixed' | 'percentage'
   });
 
   const openPromoModal = (promo?: DynamicPromo) => {
@@ -99,7 +105,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         dayOfWeek: promo.dayOfWeek,
         applicableCategory: promo.applicableCategory,
         requiredQuantity: promo.requiredQuantity,
-        bundlePrice: promo.bundlePrice
+        bundlePrice: promo.bundlePrice,
+        discountType: promo.discountType || 'fixed'
       });
     } else {
       setEditingPromo(null);
@@ -109,7 +116,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         dayOfWeek: 'all',
         applicableCategory: 'all',
         requiredQuantity: 1,
-        bundlePrice: 0
+        bundlePrice: 0,
+        discountType: 'fixed'
       });
     }
     setIsPromoModalOpen(true);
@@ -127,7 +135,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         dayOfWeek: promoFormData.dayOfWeek as any,
         applicableCategory: promoFormData.applicableCategory,
         requiredQuantity: Number(promoFormData.requiredQuantity) || 1,
-        bundlePrice: Number(promoFormData.bundlePrice) || 0
+        bundlePrice: Number(promoFormData.bundlePrice) || 0,
+        discountType: promoFormData.discountType
       };
       if (props.onEditPromo) {
         props.onEditPromo(updatedPromo);
@@ -145,7 +154,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         endTime: '23:59',
         applicableCategory: promoFormData.applicableCategory,
         requiredQuantity: Number(promoFormData.requiredQuantity) || 1,
-        bundlePrice: Number(promoFormData.bundlePrice) || 0
+        bundlePrice: Number(promoFormData.bundlePrice) || 0,
+        discountType: promoFormData.discountType
       };
       props.onAddPromo(newPromo);
     }
@@ -315,10 +325,27 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         const utilidadHoy = ingresosHoy - gastosHoy;
         
         // Desglose de Caja de Hoy
-        const efectivoHoy = ventasHoy.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.subtotal, 0);
-        const transHoy = ventasHoy.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + s.subtotal, 0);
-        const deUnaHoy = ventasHoy.filter(s => s.paymentMethod === 'de_una').reduce((sum, s) => sum + s.subtotal, 0);
-        const tarjetaHoy = ventasHoy.filter(s => s.paymentMethod === 'card').reduce((sum, s) => sum + s.subtotal, 0);
+        let efectivoHoy = ventasHoy.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.subtotal, 0);
+        let transHoy = ventasHoy.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + s.subtotal, 0);
+        let deUnaHoy = ventasHoy.filter(s => s.paymentMethod === 'de_una').reduce((sum, s) => sum + s.subtotal, 0);
+        let tarjetaHoy = ventasHoy.filter(s => s.paymentMethod === 'card').reduce((sum, s) => sum + s.subtotal, 0);
+        
+        // Sumar pagos mixtos
+        ventasHoy.filter(s => s.paymentMethod === 'mixto').forEach(s => {
+           if (s.detalles_json) {
+             try {
+               const parsed = JSON.parse(s.detalles_json);
+               if (parsed.pagos) {
+                 efectivoHoy += Number(parsed.pagos.efectivo) || 0;
+                 transHoy += Number(parsed.pagos.transferencia) || 0;
+                 deUnaHoy += Number(parsed.pagos.de_una) || 0;
+                 tarjetaHoy += Number(parsed.pagos.tarjeta) || 0;
+               }
+             } catch (e) {
+               console.error("Error parseando mixto en overview:", e);
+             }
+           }
+        });
         
         return (
           <div className="space-y-6">
@@ -1593,6 +1620,11 @@ export default function AdminDashboard(props: AdminDashboardProps) {
             <p className="text-sm text-slate-500 mt-2">Verificación de cuadre físico de efectivo, diferencias reportadas y desglose completo de transacciones.</p>
           </div>
 
+          {/* MONITOR DE CAJAS EN TIEMPO REAL */}
+          <div className="space-y-6">
+             <MonitorCajas />
+          </div>
+
           {/* TABLA AUDITORÍA DE CIERRES PAGINADA */}
           <div className="space-y-6">
             <h3 className="text-sm font-bold text-slate-900">Historial de Cierres de Turno (Auditoría de Cajas)</h3>
@@ -1695,6 +1727,10 @@ export default function AdminDashboard(props: AdminDashboardProps) {
           <CalendarModule 
             isAdmin={true}
             appointments={props.appointments}
+            onSaveAppointment={props.onSaveAppointment}
+            onAddAbono={props.onAddAbono}
+            onDeleteAppointment={props.onDeleteAppointment}
+            onProcesarAbonoACaja={props.onProcesarAbonoACaja}
           />
         </div>
       )}
@@ -1809,7 +1845,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                   <th className="p-3.5">Promoción</th>
                   <th className="p-3.5">Días Aplicables</th>
                   <th className="p-3.5">Categoría</th>
-                  <th className="p-3.5 text-right">Precio Combo</th>
+                  <th className="p-3.5 text-right">Descuento</th>
                   <th className="p-3.5 text-center">Estado</th>
                   <th className="p-3.5 text-center">Acciones</th>
                 </tr>
@@ -2298,11 +2334,26 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 block">Precio Combo Final ($ USD) *</label>
+                  <label className="text-xs font-bold text-slate-700 block">Tipo de Descuento</label>
+                  <select
+                    value={promoFormData.discountType}
+                    onChange={e => setPromoFormData({ ...promoFormData, discountType: e.target.value as 'fixed' | 'percentage' })}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-black"
+                  >
+                    <option value="fixed">Precio Fijo ($)</option>
+                    <option value="percentage">Porcentaje (%)</option>
+                  </select>
+                </div>
+                
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    {promoFormData.discountType === 'percentage' ? 'Porcentaje de Descuento (%) *' : 'Precio Combo Final ($ USD) *'}
+                  </label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
+                    max={promoFormData.discountType === 'percentage' ? 100 : undefined}
                     required
                     value={promoFormData.bundlePrice}
                     onChange={e => setPromoFormData({ ...promoFormData, bundlePrice: parseFloat(e.target.value) || 0 })}
@@ -2412,6 +2463,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                     id: `usr_${Date.now()}`,
                     name: userFormData.name.trim(),
                     email: userFormData.email.trim(),
+                    password: userFormData.password,
                     role: userFormData.role || 'specialist',
                     commissionRate: Number(userFormData.commissionRate) ?? 0.40,
                     shiftSchedule: userFormData.shiftSchedule || 'turno_manana',
@@ -2443,6 +2495,19 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                   value={userFormData.email || ''}
                   onChange={(e) => setUserFormData(prev => ({ ...prev, email: e.target.value }))}
                   placeholder="ejemplo@estudio.com"
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-black"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Contraseña {userFormData.id ? '(Dejar vacío para no cambiar)' : '*'}
+                </label>
+                <input
+                  type="password"
+                  required={!userFormData.id}
+                  value={userFormData.password || ''}
+                  onChange={(e) => setUserFormData(prev => ({ ...prev, password: e.target.value }))}
+                  placeholder="••••••••"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-black"
                 />
               </div>

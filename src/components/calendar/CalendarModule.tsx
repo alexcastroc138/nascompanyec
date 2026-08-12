@@ -55,7 +55,9 @@ export default function CalendarModule({
   const [deletingAppt, setDeletingAppt] = useState<Appointment | null>(null);
 
   // Filter appointments
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const localD = new Date();
+  localD.setMinutes(localD.getMinutes() - localD.getTimezoneOffset());
+  const hoyStr = localD.toISOString().split('T')[0];
 
   const filteredAppointments = appointments.filter((apt) => {
     const clientName = apt.cliente || apt.customerName || '';

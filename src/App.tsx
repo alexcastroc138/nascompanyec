@@ -10,6 +10,7 @@ import { getSessionToken, clearSessionToken } from './lib/auth';
 import BottomNav from './components/layout/BottomNav';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { CajaProvider } from './context/CajaContext';
+import { dbService } from './services/db.service';
 
 // Importing child components
 import LoginPage from './components/LoginPage';
@@ -36,12 +37,22 @@ export default function App() {
 
   // App-level Persistent Shared States using useLocalStorage
   const [users, setUsers] = useLocalStorage<User[]>('studio_users', INITIAL_USERS);
-  const specialistAmbar = users[0] || INITIAL_USERS[0]; // Ámbar default
-  const adminUser = users[2] || INITIAL_USERS[2]; // Admin default
+  const specialistAmbar = users.find(u => u.role === 'specialist') || users[0] || INITIAL_USERS[0]; // Ámbar default
+  const adminUser = users.find(u => u.role === 'admin') || users[0] || INITIAL_USERS[2]; // Admin default
 
-  const [items, setItems] = useLocalStorage<POSItem[]>('studio_items', INITIAL_ITEMS);
-  const [appointments, setAppointments] = useLocalStorage<Appointment[]>('studio_appointments', INITIAL_APPOINTMENTS);
-  const [sales, setSales] = useLocalStorage<Sale[]>('studio_sales', INITIAL_SALES);
+  const [items, setItems] = useState<POSItem[]>(INITIAL_ITEMS);
+  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
+  const [sales, setSales] = useState<Sale[]>(INITIAL_SALES);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      dbService.getCitas().then(data => { if (data) setAppointments(data); });
+      dbService.getVentas().then(data => { if (data) setSales(data); });
+      dbService.getInventario().then(data => { if (data) setItems(data); });
+      dbService.getUsuarios().then(data => { if (data && data.length > 0) setUsers(data); });
+    }
+  }, [isAuthenticated]);
+
   const [cierres, setCierres] = useLocalStorage<CierreCaja[]>('studio_cierres', INITIAL_CIERRES);
   const [webhookLogs] = useState<WebhookLog[]>(INITIAL_WEB_LOGS);
   const [promos, setPromos] = useLocalStorage<DynamicPromo[]>('studio_promos', INITIAL_PROMOS);
@@ -96,9 +107,18 @@ export default function App() {
   };
 
   // User Management Handlers
-  const handleAddUser = (newUser: User) => {
-    setUsers([...users, newUser]);
-    triggerNotification(`Usuario/Agente "${newUser.name}" registrado correctamente.`);
+  const handleAddUser = async (newUser: User) => {
+    try {
+      const success = await dbService.saveUsuario(newUser);
+      if (success) {
+        dbService.getUsuarios().then(data => { if (data && data.length > 0) setUsers(data); });
+        triggerNotification(`Usuario/Agente "${newUser.name}" registrado correctamente.`);
+      } else {
+        triggerNotification(`Error al crear usuario "${newUser.name}" en la base de datos.`);
+      }
+    } catch (e) {
+      triggerNotification(`Error de red al crear usuario.`);
+    }
   };
 
   const handleEditUser = (updatedUser: User) => {
@@ -114,6 +134,7 @@ export default function App() {
   // Inventory CRUD Handlers
   const handleAddItem = (newItem: POSItem) => {
     setItems([...items, newItem]);
+    dbService.saveInventarioItem(newItem, true);
     triggerNotification(`Producto "${newItem.name}" registrado en inventario.`);
     if (newItem.unit === 'unidades' && newItem.stock <= newItem.minStock) {
       setEmailAlerts([
@@ -132,6 +153,7 @@ export default function App() {
 
   const handleEditItem = (updatedItem: POSItem) => {
     setItems(items.map(i => i.id === updatedItem.id ? updatedItem : i));
+    dbService.saveInventarioItem(updatedItem, false);
     triggerNotification(`Producto "${updatedItem.name}" actualizado.`);
   };
 
@@ -159,11 +181,28 @@ export default function App() {
   );
 
   // Shared Action: Add Sale (POS)
-  const handleAddSale = (newSale: Sale) => {
+  const handleAddSale = async (newSale: Sale) => {
     setSales([newSale, ...sales]);
+    await dbService.saveVenta(newSale);
+    dbService.getVentas().then(data => { if (data) setSales(data); });
 
     if (newSale.specialistId === '1' && activeTurn && activeTurn.status === 'abierta') {
-      const addedCash = newSale.paymentMethod === 'cash' ? newSale.subtotal : 0;
+      let addedCash = 0;
+      if (newSale.paymentMethod === 'cash' || (newSale.paymentMethod as string) === 'efectivo') {
+        addedCash = newSale.subtotal;
+      } else if (newSale.paymentMethod === 'mixto') {
+        if (newSale.detalles_json) {
+          try {
+            const parsed = JSON.parse(newSale.detalles_json);
+            if (parsed.pagos && parsed.pagos.efectivo) {
+              addedCash = Number(parsed.pagos.efectivo);
+            }
+          } catch (e) {
+            console.error("Error al parsear detalles_json en App:", e);
+          }
+        }
+      }
+      
       setActiveTurn({
         ...activeTurn,
         totalSales: activeTurn.totalSales + newSale.subtotal,
@@ -176,8 +215,10 @@ export default function App() {
   };
 
   // Shared Action: Add Appointment
-  const handleAddAppointment = (appt: Appointment) => {
+  const handleAddAppointment = async (appt: Appointment) => {
     setAppointments([...appointments, appt]);
+    await dbService.saveCita(appt, true);
+    dbService.getCitas().then(data => { if (data) setAppointments(data); });
     triggerNotification(`¡Nueva cita de ${appt.customerName || appt.cliente} insertada en el calendario!`);
   };
 
@@ -186,7 +227,9 @@ export default function App() {
     const exists = appointments.some((a) => a.id === savedApt.id);
 
     const apptDate = savedApt.fecha || savedApt.date || '';
-    const todayStr = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    const todayStr = d.toISOString().split('T')[0];
     const isToday = apptDate === todayStr;
 
     // REGLA FINANCIERA: CUSTODIA DE ABONOS
@@ -246,24 +289,75 @@ export default function App() {
       }
       return [updatedAptWithCustody, ...prev];
     });
+    dbService.saveCita(updatedAptWithCustody, !exists).then(() => {
+      dbService.getCitas().then(data => { if (data) setAppointments(data); });
+    });
     triggerNotification(`Cita de "${savedApt.cliente || savedApt.customerName}" guardada (${isToday ? 'Abono en Caja' : 'Abono en Custodia'}).`);
   };
 
+  const handleProcesarAbonoACaja = (apt: Appointment) => {
+    const monto = apt.abonado || apt.deposit || 0;
+    if (monto <= 0) return;
+
+    const rawPaymentMethod = apt.metodoPagoAbono || apt.metodoPagoInicial || 'efectivo';
+    const clientName = apt.cliente || apt.customerName || 'Cliente';
+    const serviceName = apt.servicio || apt.service || 'Reserva';
+    const mockInvoice = `REC-000${Math.floor(1000 + Math.random() * 9000)}`;
+    const salePaymentMethod = (rawPaymentMethod === 'cash' || rawPaymentMethod === 'efectivo')
+      ? 'cash'
+      : (rawPaymentMethod === 'transfer' || rawPaymentMethod === 'transferencia')
+      ? 'transfer'
+      : rawPaymentMethod === 'de_una'
+      ? 'de_una'
+      : 'card';
+    const isEfectivo = rawPaymentMethod === 'cash' || rawPaymentMethod === 'efectivo';
+
+    handleAddSale({
+      id: 'abn_custodia_' + Date.now(),
+      specialistId: '1',
+      specialistName: apt.especialista || apt.specialistName || 'Ámbar Piercing',
+      customerName: clientName,
+      customerId: '9999999999999',
+      customerEmail: 'N/A',
+      customerAddress: 'N/A',
+      items: [{ itemId: 'abono_custodia', name: `Ingreso Abono Custodia: ${serviceName}`, price: monto, quantity: 1, category: 'Abono' }],
+      subtotal: monto,
+      commission: 0,
+      paymentMethod: salePaymentMethod as any,
+      cashReceived: isEfectivo ? monto : undefined,
+      changeGiven: 0,
+      timestamp: new Date().toISOString(),
+      sriStatus: 'enviado_sri' as any,
+      invoiceNumber: mockInvoice
+    });
+
+    const updatedApt = { ...apt, estadoAbono: 'ingresado_caja' } as Appointment;
+    setAppointments((prev) => prev.map((a) => (a.id === apt.id ? updatedApt : a)));
+    dbService.saveCita(updatedApt, false);
+    triggerNotification(`Abono en Custodia de $${monto.toFixed(2)} ingresado a caja.`);
+  };
+
   const handleAddAbono = (id: string, monto: number) => {
+    let updatedCita: Appointment | null = null;
     setAppointments((prev) =>
       prev.map((item) => {
         if (item.id === id) {
           const newAbonado = Math.min(item.precioTotal, item.abonado + monto);
           const isFull = newAbonado >= item.precioTotal;
-          return {
+          const updated = {
             ...item,
             abonado: newAbonado,
             estado: isFull ? 'completada' : item.estado
-          };
+          } as Appointment;
+          updatedCita = updated;
+          return updated;
         }
         return item;
       })
     );
+    if (updatedCita) {
+      dbService.saveCita(updatedCita, false);
+    }
     triggerNotification(`Abono de $${monto.toFixed(2)} USD registrado con éxito.`);
   };
 
@@ -273,7 +367,7 @@ export default function App() {
   };
 
   // Turn closing action
-  const handleCerrarCaja = (efectivoEntregado: number, notas: string) => {
+  const handleCerrarCaja = async (efectivoEntregado: number, notas: string) => {
     if (!activeTurn) return;
 
     const finalTurn: CierreCaja = {
@@ -288,14 +382,25 @@ export default function App() {
     setActiveTurn(finalTurn);
     setCierres([finalTurn, ...cierres]);
     
-    triggerNotification(`Caja de Ámbar Turno Cerrado. Diferencia física: $${finalTurn.physicalDifference?.toFixed(2)} USD.`);
+    await dbService.cerrarTurno({
+      id: finalTurn.id,
+      timestampCierre: finalTurn.endTime,
+      expectedCash: finalTurn.cashExpected,
+      actualCash: finalTurn.cashSubmitted,
+      difference: finalTurn.physicalDifference,
+      notes: finalTurn.notes
+    });
+
+    triggerNotification(`Caja de ${activeTurn.specialistName} Cerrada. Diferencia física: ${finalTurn.physicalDifference?.toFixed(2)} USD.`);
   };
 
-  const handleReabrirCaja = () => {
+  const handleReabrirCaja = async (specialist?: User) => {
+    const specId = specialist?.id || '1';
+    const specName = specialist?.name || 'Ámbar Piercing';
     const freshTurn: CierreCaja = {
       id: 'c_active_' + Date.now(),
-      specialistId: '1',
-      specialistName: 'Ámbar Piercing',
+      specialistId: specId,
+      specialistName: specName,
       startTime: new Date().toISOString(),
       totalSales: 0,
       totalCommissions: 0,
@@ -303,7 +408,15 @@ export default function App() {
       status: 'abierta'
     };
     setActiveTurn(freshTurn);
-    triggerNotification("Nuevo turno de caja iniciado para Ámbar Piercing.");
+    
+    await dbService.abrirTurno({
+      id: freshTurn.id,
+      specialistId: freshTurn.specialistId,
+      specialistName: freshTurn.specialistName,
+      timestamp: freshTurn.startTime
+    });
+
+    triggerNotification(`Nuevo turno de caja iniciado para ${specName}.`);
   };
 
   // Inventory adjustment
@@ -618,6 +731,10 @@ export default function App() {
                     onAddUser={handleAddUser}
                     onEditUser={handleEditUser}
                     onDeleteUser={handleDeleteUser}
+                    onSaveAppointment={handleSaveAppointment}
+                    onAddAbono={handleAddAbono}
+                    onDeleteAppointment={handleDeleteAppointment}
+                    onProcesarAbonoACaja={handleProcesarAbonoACaja}
                   />
                 )}
               </div>

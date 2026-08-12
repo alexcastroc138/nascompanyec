@@ -63,7 +63,15 @@ export default function HistorialVentas({ sales = [], expenses = [] }: Historial
   }, 0);
 
   const formatHora = (fechaIso: string) => {
+    if (!fechaIso) return '--:--';
     try {
+      if (fechaIso.endsWith('Z')) {
+        const date = new Date(fechaIso);
+        return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+      const match = fechaIso.match(/(\d{2}:\d{2})(:\d{2})?/);
+      if (match) return match[1];
+      
       const date = new Date(fechaIso);
       return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
     } catch {
@@ -161,7 +169,7 @@ export default function HistorialVentas({ sales = [], expenses = [] }: Historial
                     {mov.tipo === 'gasto' ? (
                       <span className="text-rose-600 font-semibold">Salida (Caja Chica)</span>
                     ) : (
-                      <span>{mov.paymentMethod === 'cash' ? 'efectivo' : mov.paymentMethod === 'card' ? 'tarjeta' : 'transferencia'}</span>
+                      <span>{mov.paymentMethod === 'cash' ? 'Efectivo' : mov.paymentMethod === 'card' ? 'Tarjeta' : mov.paymentMethod === 'de_una' ? 'De Una' : mov.paymentMethod === 'mixto' ? 'Pago Mixto' : 'Transferencia'}</span>
                     )}
                     <span>•</span>
                     <span className="font-mono text-gray-400">{formatHora(mov.timestamp)}</span>

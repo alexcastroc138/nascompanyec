@@ -43,7 +43,7 @@ export const CajaProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setVentasDelTurno(estado.ventasDelTurno || []);
       }
     }).catch((err) => {
-      console.error('Error al obtener estado inicial de caja:', err);
+      console.warn('Caja offline: estado inicial no disponible via API.');
     });
     return () => {
       isMounted = false;
@@ -54,8 +54,10 @@ export const CajaProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMontoInicial(monto);
     setIsCajaAbierta(true);
     setVentasDelTurno([]);
+    // La app maneja la creacion en dbService, asi que la llamada duplicada aqui
+    // se maneja en silencio si retorna 403.
     abrirTurnoApi(monto).catch((err) => {
-      console.error('Error al abrir turno en API:', err);
+      console.warn('Caja sync error/403:', err);
     });
   };
 
@@ -64,7 +66,7 @@ export const CajaProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setMontoInicial(0);
     setVentasDelTurno([]);
     cerrarTurnoApi({ efectivoFisico, observaciones: novedades, novedades }).catch((err) => {
-      console.error('Error al cerrar turno en API:', err);
+      console.warn('Caja offline: operacion local.');
     });
   };
 
@@ -85,7 +87,7 @@ export const CajaProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         );
       }
     }).catch((err) => {
-      console.error('Error al registrar venta en API:', err);
+      console.warn('Caja offline: venta guardada localmente.');
     });
   };
 

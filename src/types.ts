@@ -5,6 +5,7 @@ export interface User {
   name: string;
   role: Role;
   email: string;
+  password?: string;
   avatar: string;
   commissionRate: number; // e.g. 0.35 for 35% commission
   phone?: string;
@@ -36,6 +37,7 @@ export interface Sale {
   id: string;
   specialistId: string;
   specialistName: string;
+  turnoId?: string;
   customerName: string;
   customerId?: string; // Cédula/RUC for Ecuadorian billing
   customerEmail?: string;
@@ -43,10 +45,11 @@ export interface Sale {
   items: SaleItem[];
   subtotal: number;
   commission: number; // computed commission for this sale
-  paymentMethod: 'cash' | 'card' | 'transfer' | 'de_una';
+  paymentMethod: 'cash' | 'card' | 'transfer' | 'de_una' | 'mixto';
   cashReceived?: number; // Cash handed by customer
   changeGiven?: number;  // Change/Vuelto returned
-  timestamp: string; // ISO date string
+  timestamp: string;
+  detalles_json?: string; // ISO date string
   sriStatus: 'pendiente' | 'enviado_sri' | 'error_sri';
   invoiceNumber?: string; // SRI authorization e.g. 001-002-000000123
 }
@@ -104,6 +107,7 @@ export interface DynamicPromo {
   applicableCategory: Category | 'all';
   requiredQuantity: number; // e.g. 3
   bundlePrice: number;     // e.g. 10.00 USD
+  discountType?: 'fixed' | 'percentage';     // e.g. 10.00 USD
   active: boolean;
 }
 
@@ -130,6 +134,7 @@ export interface EmailAlert {
   body?: string;
   message?: string;
   timestamp: string;
+  detalles_json?: string;
   read: boolean;
 }
 
@@ -151,6 +156,7 @@ export interface CierreCaja {
 export interface WebhookLog {
   id: string;
   timestamp: string;
+  detalles_json?: string;
   source: 'WhatsApp' | 'n8n_flow' | 'api_call';
   message: string;
   extractedJson?: string;
@@ -166,5 +172,6 @@ export interface Expense {
   description: string;
   amount: number;
   timestamp: string;
+  detalles_json?: string;
 }
 

@@ -13,6 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
+// Configurar Zona Horaria Ecuador
+date_default_timezone_set('America/Guayaquil');
+
 // Variables de conexión leyendo de entorno o constantes
 $db_host = getenv('DB_HOST') ?: (defined('DB_HOST') ? DB_HOST : 'localhost');
 $db_name = getenv('DB_NAME') ?: (defined('DB_NAME') ? DB_NAME : 'nas_company_db');
@@ -27,6 +30,10 @@ try {
         PDO::ATTR_EMULATE_PREPARES   => false, // Desactiva emulación para prevenir Inyección SQL
     ];
     $pdo = new PDO($dsn, $db_user, $db_pass, $options);
+    
+    // Forzar zona horaria en la sesión de MySQL
+    $pdo->exec("SET time_zone = '-05:00';");
+
 } catch (PDOException $e) {
     http_response_code(500);
     echo json_encode([

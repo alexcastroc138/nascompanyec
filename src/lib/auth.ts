@@ -15,7 +15,7 @@ export async function authenticateCredentials(email: string, pass: string): Prom
   const cleanEmail = email.trim().toLowerCase();
   
   // URL base de la API definida en VITE_API_URL o relativa /api/auth/login.php
-  const baseUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : '';
+  const baseUrl = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : '');
   const endpoint = `${baseUrl}/api/auth/login.php`;
 
   try {

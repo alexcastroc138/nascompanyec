@@ -1,11 +1,11 @@
 // src/components/SpecialistDashboard.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  ShoppingBag, Calendar, Check, User, CreditCard, 
+  ShoppingBag, Calendar, Check, User as UserIcon, CreditCard, 
   ChevronRight, Sparkles, Receipt, RefreshCw, X, AlertCircle, 
   Clock, Home, ShieldCheck, Plus, MapPin, Mail, DollarSign, AlertTriangle, ArrowRight, Bookmark, Archive, Search, Tag, LogOut
 } from 'lucide-react';
-import { POSItem, Sale, Appointment, CierreCaja, Category, DynamicPromo, Expense } from '../types';
+import { POSItem, Sale, Appointment, CierreCaja, Category, DynamicPromo, Expense, User } from '../types';
 import BottomNav from './layout/BottomNav';
 import CalendarModule from './calendar/CalendarModule';
 import HistorialVentas from './pos/HistorialVentas';
@@ -28,7 +28,7 @@ interface SpecialistDashboardProps {
   onAddAbono?: (id: string, monto: number, metodoPago?: string) => void;
   onDeleteAppointment?: (id: string) => void;
   onCerrarCaja: (efectivoEntregado: number, notas: string) => void;
-  onReabrirCaja: () => void;
+  onReabrirCaja: (specialist?: User) => Promise<boolean> | void | any;
   onUpdateInventory: (itemId: string, qty: number) => void;
   onSwitchRole: (role: 'specialist' | 'admin') => void;
   onLogout?: () => void;
@@ -71,30 +71,58 @@ export default function SpecialistDashboard({
   const [customerId, setCustomerId] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'de_una'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'de_una' | 'mixto'>('cash');
   const [cashReceived, setCashReceived] = useState<string>('');
+  const [isPagoMixtoPOS, setIsPagoMixtoPOS] = useState<boolean>(false);
+  const [montoEfectivoPOS, setMontoEfectivoPOS] = useState<string>('');
+  const [montoTransferenciaPOS, setMontoTransferenciaPOS] = useState<string>('');
+  const [montoDeUnaPOS, setMontoDeUnaPOS] = useState<string>('');
+  const [montoTarjetaPOS, setMontoTarjetaPOS] = useState<string>('');
   const [aplicaComision, setAplicaComision] = useState<boolean>(false);
   const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [sriFeedback, setSriFeedback] = useState<string | null>(null);
 
   // Timbrador Digital
-  const [clockInTime, setClockInTime] = useState<string>('09:00 AM');
+  const [clockInTime, setClockInTime] = useState<string>('09:00');
   const [clockOutTime, setClockOutTime] = useState<string>('Sin registrar');
   const [isClockedIn, setIsClockedIn] = useState<boolean>(true);
   const [isClockedOut, setIsClockedOut] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (isCajaAbierta && cierreCajaActiva?.startTime) {
+      // Parse ISO date and extract local time
+      try {
+        const dateObj = new Date(cierreCajaActiva.startTime);
+        const timeStr = dateObj.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        setClockInTime(timeStr);
+        setIsClockedIn(true);
+      } catch (e) {
+        console.error("Error parsing clock in time", e);
+      }
+    }
+  }, [isCajaAbierta, cierreCajaActiva]);
+
   // Timbrador Handlers
-  const handleTimbrarEntrada = () => {
+  const handleTimbrarEntrada = async () => {
     try {
       if (isCajaAbierta) {
         alert('❌ La caja ya se encuentra abierta. Ve al POS para registrar ventas.');
         return;
       }
-      const timeString = new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: true });
-      setClockInTime(timeString);
+      
+      let finalTime = clockInTime;
+      if (clockInTime === '09:00' || clockInTime === '09:00 AM' || !clockInTime) {
+        finalTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        setClockInTime(finalTime);
+      }
+      
+      const success = await onReabrirCaja(currentUser);
+      if (success === false) {
+        return;
+      }
+      
       setIsClockedIn(true);
       abrirCaja(0);
-      onReabrirCaja();
       alert('✅ Turno abierto correctamente. El POS ha sido desbloqueado.');
     } catch (error) {
       alert('❌ Ocurrió un error al intentar abrir la caja: ' + error);
@@ -106,7 +134,7 @@ export default function SpecialistDashboard({
       alert('❌ No puedes timbrar salida porque tu caja está cerrada.');
       return;
     }
-    const timeString = new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const timeString = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
     setClockOutTime(timeString);
     setIsClockedOut(true);
     alert('✅ Hora de salida registrada. Por favor, ingresa el efectivo físico abajo para cuadrar la caja.');
@@ -233,7 +261,14 @@ export default function SpecialistDashboard({
       
       const itemsInPromo = itemsToDiscount.slice(0, bundleApplications * promo.requiredQuantity);
       const regularPrice = itemsInPromo.reduce((sum, price) => sum + price, 0);
-      const promoPriceTotal = bundleApplications * promo.bundlePrice;
+      
+      let promoPriceTotal = 0;
+      if (promo.discountType === 'percentage') {
+        const discountAmount = regularPrice * (promo.bundlePrice / 100);
+        promoPriceTotal = regularPrice - discountAmount;
+      } else {
+        promoPriceTotal = bundleApplications * promo.bundlePrice;
+      }
       
       const discount = Math.max(0, regularPrice - promoPriceTotal);
       if (discount > 0) {
@@ -267,9 +302,22 @@ export default function SpecialistDashboard({
       return;
     }
 
-    if (paymentMethod === 'cash' && cashReceivedVal < finalPayableTotal) {
-      alert(`¡Efectivo Insuficiente! El cliente entregó $${cashReceivedVal.toFixed(2)} USD pero el total a cobrar es $${finalPayableTotal.toFixed(2)} USD.`);
-      return;
+    if (!isPagoMixtoPOS) {
+      if (paymentMethod === 'cash' && cashReceivedVal < finalPayableTotal) {
+        alert(`¡Efectivo Insuficiente! El cliente entregó ${cashReceivedVal.toFixed(2)} USD pero el total a cobrar es ${finalPayableTotal.toFixed(2)} USD.`);
+        return;
+      }
+    } else {
+      const efec = parseFloat(montoEfectivoPOS || '0');
+      const trans = parseFloat(montoTransferenciaPOS || '0');
+      const deuna = parseFloat(montoDeUnaPOS || '0');
+      const tarjeta = parseFloat(montoTarjetaPOS || '0');
+      
+      const totalMixto = efec + trans + deuna + tarjeta;
+      if (Math.abs(totalMixto - finalPayableTotal) > 0.01) {
+        alert('❌ En Pago Mixto, la suma de los montos debe ser exacta al Total a Cobrar.');
+        return;
+      }
     }
 
     const finalCommissionValue = aplicaComision ? (finalPayableTotal * (currentUser.commissionRate || 0.40)) : 0;
@@ -280,6 +328,7 @@ export default function SpecialistDashboard({
       id: 's_pos_' + Date.now(),
       specialistId: currentUser.id,
       specialistName: currentUser.name,
+      turnoId: isCajaAbierta && cierreCajaActiva ? cierreCajaActiva.id : undefined,
       customerName: customerName || 'Consumidor Final',
       customerId: customerId || '9999999999999',
       customerEmail: customerEmail || 'final@bodyart.com',
@@ -294,12 +343,29 @@ export default function SpecialistDashboard({
       subtotal: finalPayableTotal,
       commission: finalCommissionValue,
       paymentMethod: paymentMethod,
-      cashReceived: paymentMethod === 'cash' ? cashReceivedVal : undefined,
-      changeGiven: paymentMethod === 'cash' ? changeGivenVal : undefined,
+      cashReceived: (!isPagoMixtoPOS && paymentMethod === 'cash') ? cashReceivedVal : undefined,
+      changeGiven: (!isPagoMixtoPOS && paymentMethod === 'cash') ? changeGivenVal : undefined,
       timestamp: timestampIso,
       sriStatus: 'procesado' as any,
       invoiceNumber: mockInvoice
     };
+
+    if (isPagoMixtoPOS) {
+      finalSale.paymentMethod = 'mixto' as any;
+      const desglose = {
+        efectivo: parseFloat(montoEfectivoPOS || '0'),
+        transferencia: parseFloat(montoTransferenciaPOS || '0'),
+        de_una: parseFloat(montoDeUnaPOS || '0'),
+        tarjeta: parseFloat(montoTarjetaPOS || '0')
+      };
+      
+      finalSale.detalles_json = JSON.stringify({
+        items: finalSale.items,
+        pagos: desglose
+      });
+    } else {
+      finalSale.detalles_json = JSON.stringify(finalSale.items);
+    }
 
     cart.forEach(cartItem => {
       if (cartItem.item.insumosAsociados && cartItem.item.insumosAsociados.length > 0) {
@@ -323,12 +389,27 @@ export default function SpecialistDashboard({
       }
     });
 
-    registrarVenta({
-      monto: finalPayableTotal,
-      metodoPago: paymentMethod === 'cash' ? 'efectivo' : paymentMethod === 'transfer' ? 'transferencia' : paymentMethod === 'de_una' ? 'de_una' : 'tarjeta',
-      comision: finalCommissionValue,
-      descripcion: cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ')
-    });
+    if (isPagoMixtoPOS) {
+      if (parseFloat(montoEfectivoPOS || '0') > 0) {
+        registrarVenta({ monto: parseFloat(montoEfectivoPOS), metodoPago: 'efectivo', comision: finalCommissionValue, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
+      }
+      if (parseFloat(montoTransferenciaPOS || '0') > 0) {
+        registrarVenta({ monto: parseFloat(montoTransferenciaPOS), metodoPago: 'transferencia', comision: 0, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
+      }
+      if (parseFloat(montoDeUnaPOS || '0') > 0) {
+        registrarVenta({ monto: parseFloat(montoDeUnaPOS), metodoPago: 'de_una', comision: 0, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
+      }
+      if (parseFloat(montoTarjetaPOS || '0') > 0) {
+        registrarVenta({ monto: parseFloat(montoTarjetaPOS), metodoPago: 'tarjeta', comision: 0, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
+      }
+    } else {
+      registrarVenta({
+        monto: finalPayableTotal,
+        metodoPago: paymentMethod === 'cash' ? 'efectivo' : paymentMethod === 'transfer' ? 'transferencia' : paymentMethod === 'de_una' ? 'de_una' : 'tarjeta',
+        comision: finalCommissionValue,
+        descripcion: cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ')
+      });
+    }
     onAddSale(finalSale);
     
     setCart([]);
@@ -347,15 +428,55 @@ export default function SpecialistDashboard({
   // Turn management expected cash
   const getSubtotalsForTurn = () => {
     if (!isCajaAbierta) return { efectivo: 0, transferencia: 0, de_una: 0, tarjeta: 0 };
-    return (ventasDelTurno || []).reduce((acc, s) => {
-      const monto = parseFloat((s as any).monto) || 0;
-      const metodo = (s as any).metodoPago;
-      if (metodo === 'efectivo') acc.efectivo += monto;
-      else if (metodo === 'transferencia') acc.transferencia += monto;
-      else if (metodo === 'de_una') acc.de_una += monto;
-      else if (metodo === 'tarjeta') acc.tarjeta += monto;
-      return acc;
-    }, { efectivo: 0, transferencia: 0, de_una: 0, tarjeta: 0 });
+    
+    let efec = 0, trans = 0, de_una = 0, tarj = 0;
+
+    // 1. Calcular ingresos usando las ventas globales para poder desestructurar el pago mixto (detalles_json / items)
+    // Buscamos las ventas del día de hoy (como en los otros bloques) para evitar fallos si falta cierreCajaActiva
+    const today = new Date().toISOString().split('T')[0];
+    const salesTurno = sales.filter(s => s.timestamp && s.timestamp.startsWith(today));
+
+    salesTurno.forEach(s => {
+      const pm = (s.paymentMethod || 'cash').toLowerCase();
+
+      if (pm === 'mixto') {
+        if (s.detalles_json) {
+          try {
+            const parsed = JSON.parse(s.detalles_json);
+            if (parsed.pagos) {
+              efec += Number(parsed.pagos.efectivo) || 0;
+              trans += Number(parsed.pagos.transferencia) || 0;
+              de_una += Number(parsed.pagos.de_una) || 0;
+              tarj += Number(parsed.pagos.tarjeta) || 0;
+            }
+          } catch (e) {
+            console.error("Error al parsear detalles_json de pago mixto:", e);
+          }
+        }
+      } else if (pm === 'cash' || pm === 'efectivo') {
+        efec += s.subtotal;
+      } else if (pm === 'transfer' || pm === 'transferencia') {
+        trans += s.subtotal;
+      } else if (pm === 'de_una') {
+        de_una += s.subtotal;
+      } else {
+        tarj += s.subtotal;
+      }
+    });
+
+    // 2. Procesar Gastos (Caja Chica) u otros movimientos manuales restando del efectivo
+    (ventasDelTurno || []).forEach(v => {
+      const monto = parseFloat((v as any).monto) || 0;
+      if (monto < 0) { // Identificamos que es un gasto
+        const metodo = (v as any).metodoPago;
+        if (metodo === 'efectivo') efec += monto;
+        else if (metodo === 'transferencia') trans += monto;
+        else if (metodo === 'de_una') de_una += monto;
+        else if (metodo === 'tarjeta') tarj += monto;
+      }
+    });
+
+    return { efectivo: efec, transferencia: trans, de_una: de_una, tarjeta: tarj };
   };
   const subtotalsTurn = getSubtotalsForTurn();
 
@@ -372,7 +493,29 @@ export default function SpecialistDashboard({
     if (boutiqueItemsAmount > 0) {
       acc.total += boutiqueItemsAmount;
       const pm = (s.paymentMethod || 'cash').toLowerCase();
-      if (pm === 'cash' || pm === 'efectivo') acc.efectivo += boutiqueItemsAmount;
+      
+      if (pm === 'mixto') {
+        let parsedCash = 0, parsedTrans = 0, parsedDeUna = 0, parsedTarj = 0;
+        if (s.detalles_json) {
+          try {
+            const parsed = JSON.parse(s.detalles_json);
+            if (parsed.pagos) {
+              parsedCash = Number(parsed.pagos.efectivo) || 0;
+              parsedTrans = Number(parsed.pagos.transferencia) || 0;
+              parsedDeUna = Number(parsed.pagos.de_una) || 0;
+              parsedTarj = Number(parsed.pagos.tarjeta) || 0;
+            }
+          } catch (e) {
+            console.error("Error al parsear pago mixto en boutiqueBreakdown:", e);
+          }
+        }
+        const ratio = s.subtotal > 0 ? boutiqueItemsAmount / s.subtotal : 0;
+        acc.efectivo += parsedCash * ratio;
+        acc.transferencia += parsedTrans * ratio;
+        acc.de_una += parsedDeUna * ratio;
+        acc.tarjeta += parsedTarj * ratio;
+      }
+      else if (pm === 'cash' || pm === 'efectivo') acc.efectivo += boutiqueItemsAmount;
       else if (pm === 'transfer' || pm === 'transferencia') acc.transferencia += boutiqueItemsAmount;
       else if (pm === 'de_una') acc.de_una += boutiqueItemsAmount;
       else acc.tarjeta += boutiqueItemsAmount;
@@ -393,7 +536,29 @@ export default function SpecialistDashboard({
     if (estudioItemsAmount > 0) {
       acc.total += estudioItemsAmount;
       const pm = (s.paymentMethod || 'cash').toLowerCase();
-      if (pm === 'cash' || pm === 'efectivo') acc.efectivo += estudioItemsAmount;
+      
+      if (pm === 'mixto') {
+        let parsedCash = 0, parsedTrans = 0, parsedDeUna = 0, parsedTarj = 0;
+        if (s.detalles_json) {
+          try {
+            const parsed = JSON.parse(s.detalles_json);
+            if (parsed.pagos) {
+              parsedCash = Number(parsed.pagos.efectivo) || 0;
+              parsedTrans = Number(parsed.pagos.transferencia) || 0;
+              parsedDeUna = Number(parsed.pagos.de_una) || 0;
+              parsedTarj = Number(parsed.pagos.tarjeta) || 0;
+            }
+          } catch (e) {
+            console.error("Error al parsear pago mixto en estudioBreakdown:", e);
+          }
+        }
+        const ratio = s.subtotal > 0 ? estudioItemsAmount / s.subtotal : 0;
+        acc.efectivo += parsedCash * ratio;
+        acc.transferencia += parsedTrans * ratio;
+        acc.de_una += parsedDeUna * ratio;
+        acc.tarjeta += parsedTarj * ratio;
+      }
+      else if (pm === 'cash' || pm === 'efectivo') acc.efectivo += estudioItemsAmount;
       else if (pm === 'transfer' || pm === 'transferencia') acc.transferencia += estudioItemsAmount;
       else if (pm === 'de_una') acc.de_una += estudioItemsAmount;
       else acc.tarjeta += estudioItemsAmount;
@@ -436,9 +601,9 @@ export default function SpecialistDashboard({
   };
 
   const handleReabrirTurnoCompletamente = () => {
-    onReabrirCaja(); 
+    onReabrirCaja(currentUser); 
     abrirCaja(0); 
-    const timeString = new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const timeString = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
     setClockInTime(timeString);
     setClockOutTime('Sin registrar');
     setIsClockedIn(true);
@@ -868,11 +1033,11 @@ export default function SpecialistDashboard({
                               </div>
                               <p className="text-[11px] text-slate-400">{promo.description}</p>
                               <p className="text-xs text-amber-400/90 font-medium pt-0.5">
-                                Lleva {promo.requiredQuantity} por sólo ${promo.bundlePrice.toFixed(2)} USD
+                                {promo.discountType === 'percentage' ? `Lleva ${promo.requiredQuantity} con ${promo.bundlePrice}% OFF` : `Lleva ${promo.requiredQuantity} por sólo $${promo.bundlePrice.toFixed(2)} USD`}
                               </p>
                             </div>
                             <div className="text-right shrink-0">
-                              <span className="text-base font-black font-mono text-emerald-400">${promo.bundlePrice.toFixed(2)}</span>
+                              <span className="text-base font-black font-mono text-emerald-400">{promo.discountType === 'percentage' ? `${promo.bundlePrice}%` : `$${promo.bundlePrice.toFixed(2)}`}</span>
                             </div>
                           </div>
                         ))}
@@ -976,23 +1141,82 @@ export default function SpecialistDashboard({
                   <form onSubmit={handleCheckout} className="space-y-3 pt-3 border-t border-slate-200 mt-4">
                     {/* Método de Pago Selección */}
                     <div>
-                      <label className="text-xs font-bold text-slate-500 block mb-1.5">MÉTODO DE PAGO</label>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {(['cash', 'card', 'transfer', 'de_una'] as const).map(met => (
-                          <button
-                            key={met}
-                            type="button"
-                            onClick={() => setPaymentMethod(met)}
-                            className={`py-1.5 border text-[11px] font-bold rounded-lg text-center cursor-pointer transition ${
-                              paymentMethod === met
-                                ? 'bg-black text-white border-black'
-                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            {met === 'cash' ? 'Efectivo' : met === 'card' ? 'Tarjeta' : met === 'transfer' ? 'Transf.' : 'De Una'}
-                          </button>
-                        ))}
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-500">MÉTODO DE PAGO</label>
+                        <label className="flex items-center gap-1 text-xs font-bold text-blue-600 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={isPagoMixtoPOS} 
+                            onChange={(e) => {
+                              setIsPagoMixtoPOS(e.target.checked);
+                              if (!e.target.checked) setPaymentMethod('cash');
+                              else setPaymentMethod('mixto');
+                            }}
+                            className="w-3.5 h-3.5 accent-blue-600 rounded"
+                          />
+                          Pago Mixto
+                        </label>
                       </div>
+                      
+                      {!isPagoMixtoPOS ? (
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {(['cash', 'card', 'transfer', 'de_una'] as const).map(met => (
+                            <button
+                              key={met}
+                              type="button"
+                              onClick={() => setPaymentMethod(met)}
+                              className={`py-1.5 border text-[11px] font-bold rounded-lg text-center cursor-pointer transition ${
+                                paymentMethod === met
+                                  ? 'bg-black text-white border-black'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              {met === 'cash' ? 'Efectivo' : met === 'card' ? 'Tarjeta' : met === 'transfer' ? 'Transf.' : 'De Una'}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 bg-blue-50/50 p-2.5 rounded-lg border border-blue-100">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-700 w-24">💵 Efectivo:</span>
+                            <input 
+                              type="number" step="0.01" min="0" value={montoEfectivoPOS || ''} 
+                              onChange={(e) => setMontoEfectivoPOS(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-700 w-24">🏦 Transferencia:</span>
+                            <input 
+                              type="number" step="0.01" min="0" value={montoTransferenciaPOS || ''} 
+                              onChange={(e) => setMontoTransferenciaPOS(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-700 w-24">📱 De Una:</span>
+                            <input 
+                              type="number" step="0.01" min="0" value={montoDeUnaPOS || ''} 
+                              onChange={(e) => setMontoDeUnaPOS(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-700 w-24">💳 Tarjeta:</span>
+                            <input 
+                              type="number" step="0.01" min="0" value={montoTarjetaPOS || ''} 
+                              onChange={(e) => setMontoTarjetaPOS(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs border rounded focus:ring-1 focus:ring-blue-500" placeholder="0.00"
+                            />
+                          </div>
+                          <div className="text-xs font-bold text-right mt-1 flex justify-between items-center">
+                            <span className="text-slate-500">Total: ${(parseFloat(montoEfectivoPOS || '0') + parseFloat(montoTransferenciaPOS || '0') + parseFloat(montoDeUnaPOS || '0') + parseFloat(montoTarjetaPOS || '0')).toFixed(2)}</span>
+                            <span className={Math.abs((parseFloat(montoEfectivoPOS || '0') + parseFloat(montoTransferenciaPOS || '0') + parseFloat(montoDeUnaPOS || '0') + parseFloat(montoTarjetaPOS || '0')) - finalPayableTotal) < 0.01 ? "text-emerald-600" : "text-rose-600"}>
+                              {Math.abs((parseFloat(montoEfectivoPOS || '0') + parseFloat(montoTransferenciaPOS || '0') + parseFloat(montoDeUnaPOS || '0') + parseFloat(montoTarjetaPOS || '0')) - finalPayableTotal) < 0.01 ? '✅ Cuadra' : '❌ No cuadra'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* INPUT DE EFECTIVO Y VUELTO (Solo visible si es 'cash') */}
@@ -1153,36 +1377,59 @@ export default function SpecialistDashboard({
                     <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Timbrador Digital • Control de Asistencia</span>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-150">
-                    <span className="text-xs uppercase font-extrabold text-slate-400 block">Hora de Entrada</span>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="font-mono text-sm font-bold text-slate-900">{clockInTime}</span>
-                      <button 
-                        type="button"
-                        onClick={handleTimbrarEntrada}
-                        disabled={isCajaAbierta}
-                        className="text-xs font-bold bg-black hover:bg-slate-800 disabled:bg-gray-300 text-white px-3 py-1.5 rounded-lg cursor-pointer transition shadow-xs"
-                      >
-                        {isCajaAbierta ? 'Iniciado' : 'Timbrar Entrada'}
-                      </button>
+                {!isCajaAbierta ? (
+                  <div className="flex flex-col items-center justify-center space-y-4 py-8">
+                    <button
+                      type="button"
+                      onClick={handleTimbrarEntrada}
+                      className="w-full max-w-sm h-24 bg-emerald-500 active:bg-emerald-600 text-white font-black text-xl sm:text-2xl rounded-2xl shadow-lg border-b-4 border-emerald-700 flex flex-col items-center justify-center space-y-1 transition-all active:translate-y-1 active:border-b-0"
+                    >
+                      <span>INICIAR TURNO</span>
+                      <span className="text-xs font-medium text-emerald-100 uppercase tracking-widest block">Toca para abrir caja</span>
+                    </button>
+                    <div className="flex flex-col w-full max-w-sm">
+                       <label className="text-xs text-slate-500 font-bold mb-1">O modificar hora manual:</label>
+                       <input 
+                         type="time" 
+                         value={clockInTime}
+                         onChange={(e) => setClockInTime(e.target.value)}
+                         className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-black" 
+                       />
                     </div>
                   </div>
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-150">
-                    <span className="text-xs uppercase font-extrabold text-slate-400 block">Hora de Salida</span>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="font-mono text-sm font-bold text-slate-900">{clockOutTime}</span>
-                      <button 
-                        type="button"
-                        onClick={handleTimbrarSalida}
-                        disabled={!isCajaAbierta}
-                        className="text-xs font-bold bg-black hover:bg-slate-800 disabled:bg-gray-300 text-white px-3 py-1.5 rounded-lg cursor-pointer transition shadow-xs"
-                      >
-                        Timbrar Salida
-                      </button>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-150">
+                      <span className="text-xs uppercase font-extrabold text-slate-400 block">Hora de Entrada</span>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="font-mono text-lg font-bold text-slate-900">{clockInTime}</span>
+                        <div className="flex items-center gap-2">
+                           <input 
+                             type="time" 
+                             value={clockInTime}
+                             onChange={(e) => setClockInTime(e.target.value)}
+                             className="px-2 py-1 border border-slate-200 rounded-md text-xs bg-white w-24" 
+                           />
+                           <span className="text-[10px] text-emerald-600 font-bold bg-emerald-100 px-2 py-1 rounded-md">Abierta</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-150">
+                      <span className="text-xs uppercase font-extrabold text-slate-400 block">Hora de Salida</span>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="font-mono text-lg font-bold text-slate-900">{clockOutTime}</span>
+                        <button 
+                          type="button"
+                          onClick={handleTimbrarSalida}
+                          disabled={!isCajaAbierta}
+                          className="text-xs font-bold bg-black hover:bg-slate-800 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg cursor-pointer transition shadow-xs w-full sm:w-auto mt-2 sm:mt-0"
+                        >
+                          Timbrar Salida
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* FORMULARIO CIERRE O VISTA FINAL */}

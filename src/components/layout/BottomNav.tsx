@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Home, CreditCard, Calendar, User, LogOut, X, ShieldCheck, Wallet } from 'lucide-react';
+import { Home, CreditCard, Calendar, User, LogOut, X, ShieldCheck, Wallet, BarChart3 } from 'lucide-react';
 import { SessionUser } from '../../lib/session';
 
 interface BottomNavProps {
-  activeTab: 'dashboard' | 'pos' | 'calendar' | 'turn' | string;
-  onSelectTab: (tab: 'dashboard' | 'pos' | 'calendar' | 'turn') => void;
+  activeTab: 'dashboard' | 'pos' | 'calendar' | 'turn' | 'ingresos' | string;
+  onSelectTab: (tab: 'dashboard' | 'pos' | 'calendar' | 'turn' | 'ingresos') => void;
   currentUser: SessionUser | null;
   onLogout: () => void;
 }
@@ -17,7 +17,7 @@ export default function BottomNav({
 }: BottomNavProps) {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  const handleTabClick = (tab: 'dashboard' | 'pos' | 'calendar' | 'turn') => {
+  const handleTabClick = (tab: 'dashboard' | 'pos' | 'calendar' | 'turn' | 'ingresos') => {
     setIsProfileOpen(false);
     onSelectTab(tab);
   };
@@ -77,6 +77,19 @@ export default function BottomNav({
         >
           <Wallet size={18} />
           <span className="text-[10px] tracking-tight font-semibold">Caja/Turno</span>
+        </button>
+
+        {/* 📊 Ingresos */}
+        <button
+          onClick={() => handleTabClick('ingresos')}
+          className={`flex flex-col items-center justify-center w-full h-full space-y-0.5 transition cursor-pointer ${
+            activeTab === 'ingresos' && !isProfileOpen
+              ? 'text-black font-bold'
+              : 'text-gray-400 hover:text-gray-700'
+          }`}
+        >
+          <BarChart3 size={18} />
+          <span className="text-[10px] tracking-tight">Ingresos</span>
         </button>
 
         {/* 👤 Perfil */}

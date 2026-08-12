@@ -17,7 +17,7 @@ export interface CierreTurnoDatos {
 
 export async function obtenerEstadoCajaApi(): Promise<EstadoCajaResponse> {
   try {
-    return await apiClient<EstadoCajaResponse>('/caja/estado');
+    return await apiClient<EstadoCajaResponse>('/caja/estado.php');
   } catch {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(CAJA_STORAGE_KEY);
@@ -32,7 +32,7 @@ export async function obtenerEstadoCajaApi(): Promise<EstadoCajaResponse> {
 export async function abrirTurnoApi(monto: number = 0): Promise<EstadoCajaResponse> {
   const payload = { isCajaAbierta: true, montoInicial: monto, ventasDelTurno: [] };
   try {
-    return await apiClient<EstadoCajaResponse>('/caja/abrir', {
+    return await apiClient<EstadoCajaResponse>('/caja/abrir.php', {
       method: 'POST',
       body: JSON.stringify({ montoInicial: monto }),
     });
@@ -46,7 +46,7 @@ export async function abrirTurnoApi(monto: number = 0): Promise<EstadoCajaRespon
 
 export async function cerrarTurnoApi(datos?: CierreTurnoDatos): Promise<{ success: boolean }> {
   try {
-    return await apiClient<{ success: boolean }>('/caja/cerrar', {
+    return await apiClient<{ success: boolean }>('/caja/cerrar.php', {
       method: 'POST',
       body: JSON.stringify(datos || {}),
     });
@@ -67,7 +67,7 @@ export async function registrarVentaApi(nuevaVenta: Omit<Venta, 'id'> | Venta): 
   };
 
   try {
-    return await apiClient<Venta>('/caja/ventas', {
+    return await apiClient<Venta>('/caja/ventas.php', {
       method: 'POST',
       body: JSON.stringify(ventaCompleta),
     });
@@ -90,7 +90,7 @@ export async function registrarVentaApi(nuevaVenta: Omit<Venta, 'id'> | Venta): 
 
 export async function obtenerHistorialApi(fecha?: string): Promise<Venta[]> {
   try {
-    return await apiClient<Venta[]>('/caja/historial', {
+    return await apiClient<Venta[]>('/caja/historial.php', {
       params: fecha ? { fecha } : undefined,
     });
   } catch {
