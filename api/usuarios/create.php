@@ -16,7 +16,7 @@ try {
     $hashedPassword = password_hash($input['password'], PASSWORD_DEFAULT);
     
     $stmt = $pdo->prepare("
-        INSERT INTO users (id, name, email, role, password_hash)
+        INSERT INTO usuarios (id, name, email, role, password_hash)
         VALUES (:id, :name, :email, :role, :password_hash)
     ");
     

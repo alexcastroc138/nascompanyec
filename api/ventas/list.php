@@ -1,6 +1,7 @@
 <?php
 // /api/ventas/list.php
 require_once __DIR__ . '/../config/db.php';
+
 try {
     $stmt = $pdo->query("SELECT * FROM ventas ORDER BY fecha_hora DESC");
     $ventas = $stmt->fetchAll();
@@ -11,17 +12,18 @@ try {
         if (is_array($decoded)) {
             if (isset($decoded['items'])) {
                 $items = $decoded['items'];
-            } else {
-                $items = $decoded;
+            } else if (isset($decoded[0])) { 
+                $items = $decoded; 
             }
         }
+        
         return [
             'id' => $venta['id'],
             'timestamp' => $venta['fecha_hora'],
             'specialistName' => $venta['cajero'],
             'subtotal' => (float)$venta['total'],
             'paymentMethod' => $venta['metodo_pago'],
-            'items' => $items,
+            'items' => is_array($items) ? $items : [],
             'detalles_json' => $venta['detalles_json'],
             'createdAt' => $venta['created_at']
         ];

@@ -55,6 +55,11 @@ export default function SpecialistDashboard({
   onSwitchRole,
   onLogout
 }: SpecialistDashboardProps) {
+  // Data Isolation
+  const isAdmin = currentUser?.role === 'admin';
+  const filteredSales = isAdmin ? sales : sales.filter(s => s.specialistId === currentUser?.id || s.specialistName === currentUser?.name);
+  const filteredExpenses = isAdmin ? expenses : expenses.filter(e => e.specialistId === currentUser?.id || e.specialistName === currentUser?.name);
+
   // Consume CajaContext
   const { isCajaAbierta, montoInicial, ventasDelTurno, abrirCaja, cerrarCaja, registrarVenta } = useCaja();
 
@@ -225,7 +230,7 @@ export default function SpecialistDashboard({
 
   // Calculations for current specialist from global sales
   const hoyStr = new Date().toISOString().split('T')[0];
-  const ventasGlobalesArtista = sales.filter(s => s.specialistId === currentUser.id);
+  const ventasGlobalesArtista = filteredSales.filter(s => s.specialistId === currentUser.id);
   const totalVentasAcumuladas = ventasGlobalesArtista.reduce((acc, s) => acc + s.subtotal, 0);
   const totalComisionesAcumuladas = ventasGlobalesArtista.reduce((acc, s) => acc + s.commission, 0);
   const META_VENTAS = 1200;
@@ -389,27 +394,7 @@ export default function SpecialistDashboard({
       }
     });
 
-    if (isPagoMixtoPOS) {
-      if (parseFloat(montoEfectivoPOS || '0') > 0) {
-        registrarVenta({ monto: parseFloat(montoEfectivoPOS), metodoPago: 'efectivo', comision: finalCommissionValue, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
-      }
-      if (parseFloat(montoTransferenciaPOS || '0') > 0) {
-        registrarVenta({ monto: parseFloat(montoTransferenciaPOS), metodoPago: 'transferencia', comision: 0, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
-      }
-      if (parseFloat(montoDeUnaPOS || '0') > 0) {
-        registrarVenta({ monto: parseFloat(montoDeUnaPOS), metodoPago: 'de_una', comision: 0, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
-      }
-      if (parseFloat(montoTarjetaPOS || '0') > 0) {
-        registrarVenta({ monto: parseFloat(montoTarjetaPOS), metodoPago: 'tarjeta', comision: 0, descripcion: `[Mixto] ` + cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ') });
-      }
-    } else {
-      registrarVenta({
-        monto: finalPayableTotal,
-        metodoPago: paymentMethod === 'cash' ? 'efectivo' : paymentMethod === 'transfer' ? 'transferencia' : paymentMethod === 'de_una' ? 'de_una' : 'tarjeta',
-        comision: finalCommissionValue,
-        descripcion: cart.map(c => `${c.quantity}x ${c.item.name}`).join(', ')
-      });
-    }
+    // La venta se guarda ÚNICAMENTE disparando onAddSale (evita duplicación)
     onAddSale(finalSale);
     
     setCart([]);
@@ -434,7 +419,7 @@ export default function SpecialistDashboard({
     // 1. Calcular ingresos usando las ventas globales para poder desestructurar el pago mixto (detalles_json / items)
     // Buscamos las ventas del día de hoy (como en los otros bloques) para evitar fallos si falta cierreCajaActiva
     const today = new Date().toISOString().split('T')[0];
-    const salesTurno = sales.filter(s => s.timestamp && s.timestamp.startsWith(today));
+    const salesTurno = filteredSales.filter(s => s.timestamp && s.timestamp.startsWith(today));
 
     salesTurno.forEach(s => {
       const pm = (s.paymentMethod || 'cash').toLowerCase();
@@ -481,7 +466,7 @@ export default function SpecialistDashboard({
   const subtotalsTurn = getSubtotalsForTurn();
 
   // Boutique vs Estudio calculations for today
-  const salesHoy = sales.filter(s => s.timestamp && s.timestamp.startsWith(hoyStr));
+  const salesHoy = filteredSales.filter(s => s.timestamp && s.timestamp.startsWith(hoyStr));
   const boutiqueBreakdownHoy = salesHoy.reduce((acc, s) => {
     const boutiqueItemsAmount = (s.items || [])
       .filter(i => {
@@ -690,12 +675,7 @@ export default function SpecialistDashboard({
       ? 'de_una'
       : 'tarjeta';
 
-    registrarVenta({
-      monto: monto,
-      metodoPago: cajaPaymentMethod,
-      comision: 0,
-      descripcion: `Ingreso de Abono en Custodia a Caja: ${clientName} - ${serviceName}`
-    });
+    // El ingreso de Abono a Caja Chica/Turno ya no duplica, usa onAddSale en lugar de registrarVenta directamente
 
     const mockInvoice = `REC-000${Math.floor(1000 + Math.random() * 9000)}`;
     const mappedPaymentMethod = (rawPaymentMethod === 'cash' || rawPaymentMethod === 'efectivo')
@@ -761,14 +741,7 @@ export default function SpecialistDashboard({
           ? 'de_una'
           : 'tarjeta';
 
-        // 1. Registrar el ingreso directo en CajaContext solo si es para hoy
-        registrarVenta({
-          monto: initialDeposit,
-          metodoPago: cajaPaymentMethod,
-          comision: 0,
-          descripcion: `Abono Inicial Cita HOY: ${clientName} - ${serviceName}`,
-          fecha: new Date().toISOString()
-        });
+        // 1. La venta se guarda con onAddSale
 
         // 2. Registrar en el Historial Global (sales) solo si es para hoy
         const mockInvoice = `REC-000${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1343,7 +1316,7 @@ export default function SpecialistDashboard({
                 </button>
               </div>
               <div className="pt-2">
-                <HistorialVentas sales={sales} expenses={expenses} />
+                <HistorialVentas sales={filteredSales} expenses={filteredExpenses} />
               </div>
             </div>
           )}

@@ -21,13 +21,19 @@ try {
         VALUES (:id, :fecha, :cajero, :total, :metodo_pago, :detalles_json, :turno_id)
     ");
     
+    $detalles = json_encode([
+        'items' => [], 
+        'comision' => $input['comision'] ?? 0, 
+        'descripcion' => $input['descripcion'] ?? ''
+    ]);
+
     $stmt->execute([
         ':id' => $input['id'] ?? 'v_' . time(),
         ':fecha' => $input['fecha'] ?? date('Y-m-d H:i:s'),
-        ':cajero' => $input['descripcion'] ?? 'Cajero', // using descripcion as cajero fallback
+        ':cajero' => 'Cajero', // Do not overwrite with descripcion
         ':total' => isset($input['monto']) ? (float)$input['monto'] : 0,
         ':metodo_pago' => $input['metodoPago'] ?? 'efectivo',
-        ':detalles_json' => json_encode(['comision' => $input['comision'] ?? 0, 'descripcion' => $input['descripcion'] ?? '']),
+        ':detalles_json' => $detalles,
         ':turno_id' => $turnoId
     ]);
 

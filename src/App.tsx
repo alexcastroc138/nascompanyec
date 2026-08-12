@@ -36,7 +36,19 @@ export default function App() {
   }, []);
 
   // App-level Persistent Shared States using useLocalStorage
-  const [users, setUsers] = useLocalStorage<User[]>('studio_users', INITIAL_USERS);
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+
+  useEffect(() => {
+    dbService.getUsuarios().then(data => {
+      if (data && data.length > 0) {
+        setUsers(data.map(u => ({
+          ...u,
+          avatar: u.avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+          commissionRate: u.commissionRate || 0.4
+        })));
+      }
+    });
+  }, []);
   const specialistAmbar = users.find(u => u.role === 'specialist') || users[0] || INITIAL_USERS[0]; // Ámbar default
   const adminUser = users.find(u => u.role === 'admin') || users[0] || INITIAL_USERS[2]; // Admin default
 
@@ -49,7 +61,15 @@ export default function App() {
       dbService.getCitas().then(data => { if (data) setAppointments(data); });
       dbService.getVentas().then(data => { if (data) setSales(data); });
       dbService.getInventario().then(data => { if (data) setItems(data); });
-      dbService.getUsuarios().then(data => { if (data && data.length > 0) setUsers(data); });
+      dbService.getUsuarios().then(data => { 
+        if (data && data.length > 0) {
+          setUsers(data.map(u => ({
+            ...u,
+            avatar: u.avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+            commissionRate: u.commissionRate || 0.4
+          })));
+        } 
+      });
     }
   }, [isAuthenticated]);
 
@@ -111,7 +131,15 @@ export default function App() {
     try {
       const success = await dbService.saveUsuario(newUser);
       if (success) {
-        dbService.getUsuarios().then(data => { if (data && data.length > 0) setUsers(data); });
+        dbService.getUsuarios().then(data => { 
+        if (data && data.length > 0) {
+          setUsers(data.map(u => ({
+            ...u,
+            avatar: u.avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+            commissionRate: u.commissionRate || 0.4
+          })));
+        } 
+      });
         triggerNotification(`Usuario/Agente "${newUser.name}" registrado correctamente.`);
       } else {
         triggerNotification(`Error al crear usuario "${newUser.name}" en la base de datos.`);
