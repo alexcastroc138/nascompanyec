@@ -1,51 +1,18 @@
-with open('src/App.tsx', 'r') as f:
+with open('src/components/SpecialistDashboard.tsx', 'r') as f:
     content = f.read()
 
-import re
+content = content.replace("interface SpecialistDashboardProps {", "interface SpecialistDashboardProps {\n  users?: any[];")
+content = content.replace("  currentUser,", "  currentUser,\n  users = [],")
 
-# 1. Replace useLocalStorage with useState for users
-old_users_state = "  const [users, setUsers] = useLocalStorage<User[]>('studio_users', INITIAL_USERS);"
-new_users_state = """  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+content = content.replace("specialistsList={['Ámbar Piercing', 'Carlos Tattoo', 'Elena BodyArt', 'General Studio']}", "specialistsList={users.map(u => u.name) || ['Ámbar Piercing', 'Carlos Tattoo', 'Elena BodyArt', 'General Studio']}")
 
-  useEffect(() => {
-    dbService.getUsuarios().then(data => {
-      if (data && data.length > 0) {
-        setUsers(data.map(u => ({
-          ...u,
-          avatar: u.avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
-          commissionRate: u.commissionRate || 0.4
-        })));
-      }
-    });
-  }, []);"""
+with open('src/components/SpecialistDashboard.tsx', 'w') as f:
+    f.write(content)
 
-content = content.replace(old_users_state, new_users_state)
+with open('src/App.tsx', 'r') as f:
+    app_content = f.read()
 
-# 2. Replace handleAddUser
-old_add_user = """  const handleAddUser = (newUser: User) => {
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-  };"""
-
-new_add_user = """  const handleAddUser = async (newUser: User) => {
-    const success = await dbService.saveUsuario(newUser);
-    if (success) {
-      triggerNotification(`Usuario ${newUser.name} creado exitosamente.`);
-      dbService.getUsuarios().then(data => {
-        if (data && data.length > 0) {
-          setUsers(data.map(u => ({
-            ...u,
-            avatar: u.avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
-            commissionRate: u.commissionRate || 0.4
-          })));
-        }
-      });
-    } else {
-      triggerNotification('Error al crear usuario.');
-    }
-  };"""
-
-content = content.replace(old_add_user, new_add_user)
+app_content = app_content.replace("<SpecialistDashboard\n              currentUser={specialistAmbar}", "<SpecialistDashboard\n              currentUser={specialistAmbar}\n              users={users}")
 
 with open('src/App.tsx', 'w') as f:
-    f.write(content)
+    f.write(app_content)

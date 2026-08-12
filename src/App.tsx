@@ -21,6 +21,7 @@ import SettingsPage from './components/SettingsPage';
 export default function App() {
   // Authentication & Session state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [currentRole, setCurrentRole] = useState<'specialist' | 'admin'>('specialist');
   const [adminActiveTab, setAdminActiveTab] = useState<'overview' | 'reports' | 'cajas' | 'inventory' | 'promos' | 'agents' | 'time' | 'calendar' | 'alerts' | 'sri' | 'settings'>('overview');
   const [isAdminMobileMenuOpen, setIsAdminMobileMenuOpen] = useState<boolean>(false);
@@ -30,8 +31,10 @@ export default function App() {
     if (session) {
       setIsAuthenticated(true);
       setCurrentRole(session.role as 'admin' | 'specialist');
+      setCurrentUser(session);
     } else {
       setIsAuthenticated(false);
+      setCurrentUser(null);
     }
   }, []);
 
@@ -49,8 +52,8 @@ export default function App() {
       }
     });
   }, []);
-  const specialistAmbar = users.find(u => u.role === 'specialist') || users[0] || INITIAL_USERS[0]; // Ámbar default
-  const adminUser = users.find(u => u.role === 'admin') || users[0] || INITIAL_USERS[2]; // Admin default
+  const specialistAmbar = currentUser || users.find(u => u.role === 'specialist') || users[0] || INITIAL_USERS[0];
+  const adminUser = currentUser || users.find(u => u.role === 'admin') || users[0] || INITIAL_USERS[2];
 
   const [items, setItems] = useState<POSItem[]>(INITIAL_ITEMS);
   const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
@@ -113,16 +116,18 @@ export default function App() {
   });
 
   // Authentication Handler
-  const handleLogin = (role: 'admin' | 'specialist', email: string) => {
-    setCurrentRole(role);
+  const handleLogin = (user: any) => {
+    setCurrentUser(user);
+    setCurrentRole(user.role as 'admin' | 'specialist');
     setIsAuthenticated(true);
     setAdminActiveTab('overview');
-    triggerNotification(`Sesión iniciada correctamente como ${role === 'admin' ? 'Administrador' : 'Especialista'}.`);
+    triggerNotification(`Sesión iniciada correctamente como ${user.role === 'admin' ? 'Administrador' : 'Especialista'}.`);
   };
 
   const handleLogout = () => {
     clearSessionToken();
     setIsAuthenticated(false);
+    setCurrentUser(null);
     triggerNotification('Sesión cerrada correctamente.');
   };
 
@@ -519,6 +524,7 @@ export default function App() {
           <div className="w-full h-full min-h-screen flex bg-white">
             <SpecialistDashboard
               currentUser={specialistAmbar}
+              users={users}
               items={items}
               appointments={appointments}
               sales={sales}

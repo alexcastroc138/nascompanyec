@@ -3,7 +3,7 @@ import { AlertCircle, Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { authenticateCredentials } from '../lib/auth';
 
 interface LoginPageProps {
-  onLogin: (role: 'admin' | 'specialist', email: string) => void;
+  onLogin: (user: any) => void;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -28,7 +28,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       setIsLoading(false);
 
       if (result.success && result.user) {
-        onLogin(result.user.role as 'admin' | 'specialist', result.user.email);
+        onLogin(result.user);
       } else {
         setError(result.error || 'Credenciales incorrectas.');
       }

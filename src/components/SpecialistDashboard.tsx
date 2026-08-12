@@ -13,6 +13,7 @@ import { useCaja } from '../context/CajaContext';
 import { enviarAlertaCaja, enviarAlertaStock } from '../utils/emailAlerts';
 
 interface SpecialistDashboardProps {
+  users?: any[];
   currentUser: any;
   items: POSItem[];
   appointments: Appointment[];
@@ -36,6 +37,7 @@ interface SpecialistDashboardProps {
 
 export default function SpecialistDashboard({
   currentUser,
+  users = [],
   items,
   appointments,
   sales,
@@ -638,6 +640,7 @@ export default function SpecialistDashboard({
         id: 'abn_' + Date.now(),
         specialistId: currentUser.id,
         specialistName: currentUser.name,
+        turnoId: isCajaAbierta && cierreCajaActiva ? cierreCajaActiva.id : undefined,
         customerName: clientName,
         customerId: '9999999999999',
         customerEmail: 'N/A',
@@ -752,6 +755,7 @@ export default function SpecialistDashboard({
           id: 'abn_ini_' + Date.now(),
           specialistId: currentUser.id,
           specialistName: currentUser.name,
+          turnoId: isCajaAbierta && cierreCajaActiva ? cierreCajaActiva.id : undefined,
           customerName: clientName,
           customerId: '9999999999999',
           customerEmail: 'N/A',
@@ -1325,7 +1329,7 @@ export default function SpecialistDashboard({
           {activeTab === 'calendar' && (
             <CalendarModule 
               currentSpecialistName={currentUser.name}
-              specialistsList={['Ámbar Piercing', 'Carlos Tattoo', 'Elena BodyArt', 'General Studio']}
+              specialistsList={users.map(u => u.name) || ['Ámbar Piercing', 'Carlos Tattoo', 'Elena BodyArt', 'General Studio']}
               appointments={appointments}
               onSaveAppointment={handleSaveAppointmentLocal}
               onAddAbono={handleRegistrarAbonoLocal}

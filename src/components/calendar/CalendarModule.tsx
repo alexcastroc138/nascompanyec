@@ -537,6 +537,7 @@ export default function CalendarModule({
       >
         <AppointmentForm
           initialData={editingAppointment || undefined}
+          currentSpecialistName={currentSpecialistName}
           onSubmit={handleSaveAppointment}
           onCancel={() => {
             setIsFormModalOpen(false);

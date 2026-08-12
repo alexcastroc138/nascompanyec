@@ -11,6 +11,7 @@ interface AppointmentFormProps {
   onCancel: () => void;
   isAdmin?: boolean;
   specialistsList?: string[];
+  currentSpecialistName?: string;
 }
 
 const DEFAULT_SPECIALISTS = ['Ámbar Piercing', 'Carlos Tattoo', 'Elena BodyArt', 'General Studio'];
@@ -28,7 +29,8 @@ export default function AppointmentForm({
   onSubmit,
   onCancel,
   isAdmin = false,
-  specialistsList = DEFAULT_SPECIALISTS
+  specialistsList = DEFAULT_SPECIALISTS,
+  currentSpecialistName
 }: AppointmentFormProps) {
   const getLocalTodayStr = () => {
     const d = new Date();
@@ -41,7 +43,7 @@ export default function AppointmentForm({
   const [telefono, setTelefono] = useState(initialData?.telefono || '');
   const [fecha, setFecha] = useState(initialData?.fecha || getLocalTodayStr());
   const [hora, setHora] = useState(initialData?.hora || '10:00');
-  const [especialista, setEspecialista] = useState(initialData?.especialista || specialistsList[0] || 'Ámbar Piercing');
+  const [especialista, setEspecialista] = useState(initialData?.especialista || currentSpecialistName || specialistsList[0] || 'Ámbar Piercing');
   const [servicio, setServicio] = useState(initialData?.servicio || 'Tatuaje');
 
   // Dynamic Detail fields depending on service
@@ -72,7 +74,7 @@ export default function AppointmentForm({
       setTelefono(initialData.telefono || '');
       setFecha(initialData.fecha || getLocalTodayStr());
       setHora(initialData.hora || '10:00');
-      setEspecialista(initialData.especialista || specialistsList[0] || 'Ámbar Piercing');
+      setEspecialista(initialData.especialista || currentSpecialistName || specialistsList[0] || 'Ámbar Piercing');
       setServicio(initialData.servicio || 'Tatuaje');
       setPrecioTotal(initialData.precioTotal ?? 0);
       setAbonado(initialData.abonado ?? 0);
