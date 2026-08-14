@@ -1,56 +1,148 @@
 import { apiClient } from './apiClient';
 import { Venta } from '../context/CajaContext';
+import { getLocalISOString, getTodayStr } from '../utils/dateUtils';
 
 const CAJA_STORAGE_KEY = 'caja_state';
 
 export interface EstadoCajaResponse {
   isCajaAbierta: boolean;
   montoInicial: number;
+  esperado_efectivo?: number;
+  esperado_transferencia?: number;
+  esperado_de_una?: number;
+  esperado_tarjeta?: number;
+  total_ventas?: number;
+  total_transacciones?: number;
+  efectivoEsperado?: number;
+  subtotales?: {
+    efectivo: number;
+    transferencia: number;
+    de_una: number;
+    tarjeta: number;
+    total: number;
+  };
+  turno?: {
+    id: string;
+    usuario_id: string;
+    usuario_nombre: string;
+    hora_apertura: string;
+    estado: string;
+  };
   ventasDelTurno: Venta[];
 }
 
 export interface CierreTurnoDatos {
+  id?: string;
+  usuario_id?: string;
+  specialistId?: string;
+  actualCash?: number;
   efectivoFisico?: number;
+  expectedCash?: number;
+  difference?: number;
   observaciones?: string;
   novedades?: string;
+  notes?: string;
 }
 
-export async function obtenerEstadoCajaApi(): Promise<EstadoCajaResponse> {
+export async function obtenerEstadoCajaApi(specialistId?: string): Promise<EstadoCajaResponse> {
   try {
-    return await apiClient<EstadoCajaResponse>('/caja/estado.php');
-  } catch {
+    const params = specialistId ? { specialistId } : undefined;
+    const res = await apiClient<EstadoCajaResponse>('/caja/estado.php', { params });
+    if (res && typeof window !== 'undefined') {
+      localStorage.setItem(CAJA_STORAGE_KEY, JSON.stringify(res));
+    }
+    return res;
+  } catch (e) {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(CAJA_STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        try {
+          return JSON.parse(stored);
+        } catch {
+          // Ignore parse error
+        }
       }
     }
-    return { isCajaAbierta: false, montoInicial: 0, ventasDelTurno: [] };
+    return { 
+      isCajaAbierta: false, 
+      montoInicial: 0, 
+      esperado_efectivo: 0, 
+      esperado_transferencia: 0, 
+      esperado_de_una: 0, 
+      esperado_tarjeta: 0, 
+      total_ventas: 0, 
+      efectivoEsperado: 0, 
+      ventasDelTurno: [] 
+    };
   }
 }
 
-export async function abrirTurnoApi(monto: number = 0): Promise<EstadoCajaResponse> {
-  const payload = { isCajaAbierta: true, montoInicial: monto, ventasDelTurno: [] };
+export async function abrirTurnoApi(
+  monto: number = 0, 
+  specialist?: { id: string; name: string }
+): Promise<EstadoCajaResponse> {
+  const payload = {
+    montoInicial: monto,
+    usuario_id: specialist?.id,
+    specialistId: specialist?.id,
+    usuario_nombre: specialist?.name,
+    specialistName: specialist?.name,
+  };
+
   try {
-    return await apiClient<EstadoCajaResponse>('/caja/abrir.php', {
+    const res = await apiClient<{ status: string; message?: string; data?: any }>('/caja/abrir.php', {
       method: 'POST',
-      body: JSON.stringify({ montoInicial: monto }),
+      body: JSON.stringify(payload),
     });
-  } catch {
+
+    const stateData: EstadoCajaResponse = {
+      isCajaAbierta: true,
+      montoInicial: monto,
+      turno: res.data,
+      esperado_efectivo: 0,
+      esperado_transferencia: 0,
+      esperado_de_una: 0,
+      esperado_tarjeta: 0,
+      total_ventas: 0,
+      efectivoEsperado: 0,
+      ventasDelTurno: []
+    };
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem(CAJA_STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(CAJA_STORAGE_KEY, JSON.stringify(stateData));
     }
-    return payload;
+    return stateData;
+  } catch (e) {
+    const localState: EstadoCajaResponse = { 
+      isCajaAbierta: true, 
+      montoInicial: monto, 
+      esperado_efectivo: 0, 
+      esperado_transferencia: 0, 
+      esperado_de_una: 0, 
+      esperado_tarjeta: 0, 
+      total_ventas: 0, 
+      efectivoEsperado: 0, 
+      ventasDelTurno: [] 
+    };
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(CAJA_STORAGE_KEY, JSON.stringify(localState));
+    }
+    return localState;
   }
 }
 
-export async function cerrarTurnoApi(datos?: CierreTurnoDatos): Promise<{ success: boolean }> {
+export async function cerrarTurnoApi(datos?: CierreTurnoDatos): Promise<{ success: boolean; data?: any }> {
   try {
-    return await apiClient<{ success: boolean }>('/caja/cerrar.php', {
+    const res = await apiClient<{ status: string; message?: string; data?: any }>('/caja/cerrar.php', {
       method: 'POST',
       body: JSON.stringify(datos || {}),
     });
-  } catch {
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(CAJA_STORAGE_KEY);
+    }
+    return { success: res.status === 'success', data: res.data };
+  } catch (e) {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(CAJA_STORAGE_KEY);
     }
@@ -58,12 +150,13 @@ export async function cerrarTurnoApi(datos?: CierreTurnoDatos): Promise<{ succes
   }
 }
 
-export async function registrarVentaApi(nuevaVenta: Omit<Venta, 'id'> | Venta): Promise<Venta> {
+export async function registrarVentaApi(nuevaVenta: (Omit<Venta, 'id'> | Venta) & { turno_id?: string; turnoId?: string }): Promise<Venta> {
   const ventaCompleta: Venta = {
     ...nuevaVenta,
     id: 'id' in nuevaVenta && nuevaVenta.id ? nuevaVenta.id : `v_${Date.now()}`,
     descripcion: nuevaVenta.descripcion || nuevaVenta.servicio || 'Servicio General',
-    fecha: nuevaVenta.fecha || new Date().toISOString(),
+    fecha: nuevaVenta.fecha || getLocalISOString(),
+    turno_id: (nuevaVenta as any).turno_id || (nuevaVenta as any).turnoId,
   };
 
   try {

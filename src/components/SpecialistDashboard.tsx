@@ -5,12 +5,13 @@ import {
   ChevronRight, Sparkles, Receipt, RefreshCw, X, AlertCircle, 
   Clock, Home, ShieldCheck, Plus, MapPin, Mail, DollarSign, AlertTriangle, ArrowRight, Bookmark, Archive, Search, Tag, LogOut
 } from 'lucide-react';
-import { POSItem, Sale, Appointment, CierreCaja, Category, DynamicPromo, Expense, User } from '../types';
+import { POSItem, Sale, Appointment, CierreCaja, Category, DynamicPromo, Expense, User, Categoria } from '../types';
 import BottomNav from './layout/BottomNav';
 import CalendarModule from './calendar/CalendarModule';
 import HistorialVentas from './pos/HistorialVentas';
 import { useCaja } from '../context/CajaContext';
 import { enviarAlertaCaja, enviarAlertaStock } from '../utils/emailAlerts';
+import { getLocalISOString, getTodayStr } from '../utils/dateUtils';
 
 interface SpecialistDashboardProps {
   users?: any[];
@@ -21,7 +22,7 @@ interface SpecialistDashboardProps {
   expenses?: Expense[];
   cierreCajaActiva: CierreCaja | null;
   promos?: DynamicPromo[];
-  categories?: string[];
+  categories?: Categoria[];
   onAddSale: (sale: Sale) => void;
   onAddExpense?: (expense: Expense) => void;
   onAddAppointment: (appt: Appointment) => void;
@@ -44,7 +45,7 @@ export default function SpecialistDashboard({
   expenses = [],
   cierreCajaActiva,
   promos = [],
-  categories = ['Servicios', 'Joyería', 'Piezas', 'Smoke Shop', 'Boutique', 'Ropa'],
+  categories = [],
   onAddSale,
   onAddExpense,
   onAddAppointment,
@@ -63,7 +64,30 @@ export default function SpecialistDashboard({
   const filteredExpenses = isAdmin ? expenses : expenses.filter(e => e.specialistId === currentUser?.id || e.specialistName === currentUser?.name);
 
   // Consume CajaContext
-  const { isCajaAbierta, montoInicial, ventasDelTurno, abrirCaja, cerrarCaja, registrarVenta } = useCaja();
+  const { 
+    isCajaAbierta, 
+    turnoId,
+    turnoActual,
+    montoInicial, 
+    esperadoEfectivo,
+    esperadoTransferencia,
+    esperadoDeUna,
+    esperadoTarjeta,
+    totalVentasTurno,
+    ventasDelTurno, 
+    abrirCaja, 
+    cerrarCaja, 
+    recargarEstadoCaja, 
+    registrarVenta 
+  } = useCaja();
+
+  const activeTurnoId = turnoId || (cierreCajaActiva ? cierreCajaActiva.id : undefined) || (turnoActual ? turnoActual.id : undefined);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      recargarEstadoCaja(currentUser.id);
+    }
+  }, [currentUser?.id]);
 
   // Navigation state for left sidebar
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pos' | 'calendar' | 'turn' | 'ingresos'>('dashboard');
@@ -176,7 +200,7 @@ export default function SpecialistDashboard({
       title: expenseTitle.trim(),
       description: expenseReason.trim() || expenseTitle.trim(),
       amount: parsedAmount,
-      timestamp: new Date().toISOString()
+      timestamp: getLocalISOString()
     };
 
     if (onAddExpense) {
@@ -231,7 +255,7 @@ export default function SpecialistDashboard({
   };
 
   // Calculations for current specialist from global sales
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = getTodayStr();
   const ventasGlobalesArtista = filteredSales.filter(s => s.specialistId === currentUser.id);
   const totalVentasAcumuladas = ventasGlobalesArtista.reduce((acc, s) => acc + s.subtotal, 0);
   const totalComisionesAcumuladas = ventasGlobalesArtista.reduce((acc, s) => acc + s.commission, 0);
@@ -253,7 +277,10 @@ export default function SpecialistDashboard({
   let appliedPromoNames: string[] = [];
 
   activePromosToday.forEach(promo => {
-    const matchingItems = cart.filter(i => !i.isMerma && (promo.applicableCategory === 'all' || i.item.category.toLowerCase() === promo.applicableCategory.toLowerCase()));
+    const matchingItems = cart.filter(i => {
+      const iCat = typeof i.item.category === 'string' ? i.item.category : ((i.item.category as any)?.nombre || '');
+      return !i.isMerma && (promo.applicableCategory === 'all' || iCat.toLowerCase() === promo.applicableCategory.toLowerCase());
+    });
     const matchingCount = matchingItems.reduce((sum, i) => sum + i.quantity, 0);
 
     if (matchingCount >= promo.requiredQuantity && promo.requiredQuantity > 0) {
@@ -294,9 +321,10 @@ export default function SpecialistDashboard({
     : 0;
 
   const filteredItems = items.filter(item => {
-    const matchesCategory = selectedCategory === 'all' || item.category.toLowerCase() === selectedCategory.toLowerCase();
+    const itemCat = typeof item.category === 'string' ? item.category : ((item.category as any)?.nombre || '');
+    const matchesCategory = selectedCategory === 'all' || itemCat.toLowerCase() === selectedCategory.toLowerCase();
     const q = posSearchQuery.trim().toLowerCase();
-    const matchesQuery = !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q);
+    const matchesQuery = !q || item.name.toLowerCase().includes(q) || itemCat.toLowerCase().includes(q);
     return matchesCategory && matchesQuery;
   });
 
@@ -304,7 +332,7 @@ export default function SpecialistDashboard({
   const handleCheckout = (e: React.FormEvent) => {
     e.preventDefault();
     if (cart.length === 0) return;
-    if (!isCajaAbierta) {
+    if (!isCajaAbierta || !activeTurnoId) {
       alert('¡Error! Debes tener un turno de caja abierto para registrar ventas.');
       return;
     }
@@ -329,13 +357,13 @@ export default function SpecialistDashboard({
 
     const finalCommissionValue = aplicaComision ? (finalPayableTotal * (currentUser.commissionRate || 0.40)) : 0;
     const mockInvoice = `001-002-0000${Math.floor(100000 + Math.random() * 900000)}`;
-    const timestampIso = new Date().toISOString();
+    const timestampIso = getLocalISOString();
     
     const finalSale: Sale = {
       id: 's_pos_' + Date.now(),
       specialistId: currentUser.id,
       specialistName: currentUser.name,
-      turnoId: isCajaAbierta && cierreCajaActiva ? cierreCajaActiva.id : undefined,
+      turnoId: activeTurnoId,
       customerName: customerName || 'Consumidor Final',
       customerId: customerId || '9999999999999',
       customerEmail: customerEmail || 'final@bodyart.com',
@@ -420,7 +448,7 @@ export default function SpecialistDashboard({
 
     // 1. Calcular ingresos usando las ventas globales para poder desestructurar el pago mixto (detalles_json / items)
     // Buscamos las ventas del día de hoy (como en los otros bloques) para evitar fallos si falta cierreCajaActiva
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayStr();
     const salesTurno = filteredSales.filter(s => s.timestamp && s.timestamp.startsWith(today));
 
     salesTurno.forEach(s => {
@@ -472,7 +500,8 @@ export default function SpecialistDashboard({
   const boutiqueBreakdownHoy = salesHoy.reduce((acc, s) => {
     const boutiqueItemsAmount = (s.items || [])
       .filter(i => {
-        const cat = (i.category || '').toLowerCase();
+        const catStr = typeof i.category === 'string' ? i.category : ((i.category as any)?.nombre || '');
+        const cat = catStr.toLowerCase();
         return cat === 'boutique' || cat === 'ropa';
       })
       .reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -515,7 +544,8 @@ export default function SpecialistDashboard({
   const estudioBreakdownHoy = salesHoy.reduce((acc, s) => {
     const estudioItemsAmount = (s.items || [])
       .filter(i => {
-        const cat = (i.category || '').toLowerCase();
+        const catStr = typeof i.category === 'string' ? i.category : ((i.category as any)?.nombre || '');
+        const cat = catStr.toLowerCase();
         return cat !== 'boutique' && cat !== 'ropa';
       })
       .reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -556,7 +586,7 @@ export default function SpecialistDashboard({
   const totalVentasHoyGeneral = salesHoy.reduce((acc, s) => acc + s.subtotal, 0);
   const totalEstudioHoy = estudioBreakdownHoy.total;
 
-  const handleCajaCierreSubmit = (e: React.FormEvent) => {
+  const handleCajaCierreSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isCajaAbierta) {
       alert('❌ La caja ya está cerrada.');
@@ -569,34 +599,47 @@ export default function SpecialistDashboard({
     }
 
     const diff = parsedCashSubmitted - subtotalsTurn.efectivo;
-    cerrarCaja(parsedCashSubmitted, closingNotes);
-    onCerrarCaja(parsedCashSubmitted, closingNotes);
+    const notesToSave = closingNotes;
 
-    // Enviar alerta por correo usando EmailJS
+    // 1. Limpiar inputs inmediatamente
+    setDeclaredCash('');
+    setClosingNotes('');
+
+    // 2. Cerrar en CajaContext y Backend
+    await cerrarCaja(parsedCashSubmitted, notesToSave, currentUser.id);
+    await onCerrarCaja(parsedCashSubmitted, notesToSave);
+
+    // 3. Enviar alerta por correo usando EmailJS
     enviarAlertaCaja({
       usuario: currentUser.name || 'Especialista',
       montoEfectivoEsperado: subtotalsTurn.efectivo,
       montoEfectivoReal: parsedCashSubmitted,
       diferencia: diff,
-      observaciones: closingNotes,
+      observaciones: notesToSave,
       totalVentas: subtotalsTurn.efectivo + subtotalsTurn.transferencia + subtotalsTurn.de_una + subtotalsTurn.tarjeta
     });
 
-    setDeclaredCash('');
-    setClosingNotes('');
+    // 4. Forzar recarga inmediata de estado
+    if (currentUser?.id) {
+      await recargarEstadoCaja(currentUser.id);
+    }
+
     alert('✅ Caja cuadrada y cerrada exitosamente.');
   };
 
-  const handleReabrirTurnoCompletamente = () => {
-    onReabrirCaja(currentUser); 
-    abrirCaja(0); 
+  const handleReabrirTurnoCompletamente = async () => {
+    setDeclaredCash('');
+    setClosingNotes('');
+    await onReabrirCaja(currentUser); 
+    await abrirCaja(0, { id: currentUser.id, name: currentUser.name }); 
     const timeString = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
     setClockInTime(timeString);
     setClockOutTime('Sin registrar');
     setIsClockedIn(true);
     setIsClockedOut(false);
-    setDeclaredCash('');
-    setClosingNotes('');
+    if (currentUser?.id) {
+      await recargarEstadoCaja(currentUser.id);
+    }
   };
 
   // --- NUEVA LÓGICA: Puente entre Abono del Calendario y Caja ---
@@ -605,7 +648,7 @@ export default function SpecialistDashboard({
     if (!apt) return;
 
     const tzOffset = (new Date()).getTimezoneOffset() * 60000; 
-    const todayStr = (new Date(Date.now() - tzOffset)).toISOString().split('T')[0];
+    const todayStr = getTodayStr();
     const isToday = apt.fecha === todayStr || apt.date === todayStr;
 
     if (isToday && !isCajaAbierta) {
@@ -640,7 +683,7 @@ export default function SpecialistDashboard({
         id: 'abn_' + Date.now(),
         specialistId: currentUser.id,
         specialistName: currentUser.name,
-        turnoId: isCajaAbierta && cierreCajaActiva ? cierreCajaActiva.id : undefined,
+        turnoId: activeTurnoId,
         customerName: clientName,
         customerId: '9999999999999',
         customerEmail: 'N/A',
@@ -651,7 +694,7 @@ export default function SpecialistDashboard({
         paymentMethod: mappedPaymentMethod as any,
         cashReceived: isEfectivo ? monto : undefined,
         changeGiven: 0,
-        timestamp: new Date().toISOString(),
+        timestamp: getLocalISOString(),
         sriStatus: 'enviado_sri' as any,
         invoiceNumber: mockInvoice
       });
@@ -694,6 +737,7 @@ export default function SpecialistDashboard({
       id: 'abn_' + Date.now(),
       specialistId: currentUser.id,
       specialistName: currentUser.name,
+      turnoId: activeTurnoId,
       customerName: clientName,
       customerId: '9999999999999',
       customerEmail: 'N/A',
@@ -704,7 +748,7 @@ export default function SpecialistDashboard({
       paymentMethod: mappedPaymentMethod as any,
       cashReceived: isEfectivo ? monto : undefined,
       changeGiven: 0,
-      timestamp: new Date().toISOString(),
+      timestamp: getLocalISOString(),
       sriStatus: 'enviado_sri' as any,
       invoiceNumber: mockInvoice
     });
@@ -723,7 +767,7 @@ export default function SpecialistDashboard({
     const initialDeposit = savedApt.abonado || savedApt.deposit || 0;
 
     const tzOffset = (new Date()).getTimezoneOffset() * 60000; 
-    const todayStr = (new Date(Date.now() - tzOffset)).toISOString().split('T')[0];
+    const todayStr = getTodayStr();
     const isToday = savedApt.fecha === todayStr;
 
     if (isNew && initialDeposit > 0) {
@@ -755,7 +799,7 @@ export default function SpecialistDashboard({
           id: 'abn_ini_' + Date.now(),
           specialistId: currentUser.id,
           specialistName: currentUser.name,
-          turnoId: isCajaAbierta && cierreCajaActiva ? cierreCajaActiva.id : undefined,
+          turnoId: activeTurnoId,
           customerName: clientName,
           customerId: '9999999999999',
           customerEmail: 'N/A',
@@ -766,7 +810,7 @@ export default function SpecialistDashboard({
           paymentMethod: mappedPaymentMethod as any,
           cashReceived: isEfectivo ? initialDeposit : undefined,
           changeGiven: 0,
-          timestamp: new Date().toISOString(),
+          timestamp: getLocalISOString(),
           sriStatus: 'enviado_sri' as any,
           invoiceNumber: mockInvoice
         });
@@ -1024,20 +1068,21 @@ export default function SpecialistDashboard({
 
                   {/* Filtros de Categorías */}
                   <div className="flex flex-wrap gap-2">
-                    {['Todos', ...(categories && categories.length > 0 ? categories : ['Servicios', 'Joyería', 'Piezas', 'Smoke Shop', 'Boutique', 'Ropa'])].map(cat => {
-                      const isAll = cat === 'Todos';
-                      const isSelected = isAll ? selectedCategory === 'all' : selectedCategory.toLowerCase() === cat.toLowerCase();
+                    {[{id: 'all', nombre: 'Todos'}, ...(categories || [])].map(cat => {
+                      const catName = typeof cat === 'string' ? cat : (cat.nombre || '');
+                      const isAll = catName === 'Todos' || cat.id === 'all';
+                      const isSelected = isAll ? selectedCategory === 'all' : selectedCategory.toLowerCase() === catName.toLowerCase();
                       return (
                         <button
-                          key={cat}
-                          onClick={() => setSelectedCategory(isAll ? 'all' : cat)}
+                          key={typeof cat === 'string' ? cat : cat.id}
+                          onClick={() => setSelectedCategory(isAll ? 'all' : catName)}
                           className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition border cursor-pointer ${
                             isSelected 
                               ? 'bg-black text-white border-black shadow-sm' 
                               : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
                           }`}
                         >
-                          {cat}
+                          {catName}
                         </button>
                       );
                     })}
@@ -1290,10 +1335,15 @@ export default function SpecialistDashboard({
 
                     <button
                       type="submit"
-                      disabled={cart.length === 0 || isProcessingSale || !isCajaAbierta}
-                      className="w-full py-3 bg-black hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                      id="btn-emitir-recibo-cobrar"
+                      disabled={cart.length === 0 || isProcessingSale || !isCajaAbierta || !activeTurnoId}
+                      className="w-full py-3 bg-black hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition cursor-pointer"
                     >
-                      {isProcessingSale ? 'Procesando...' : 'Emitir Recibo y Cobrar'}
+                      {isProcessingSale 
+                        ? 'Procesando...' 
+                        : !isCajaAbierta 
+                        ? 'Caja Cerrada (Abre un turno para cobrar)' 
+                        : 'Emitir Recibo y Cobrar'}
                     </button>
                   </form>
                 </div>

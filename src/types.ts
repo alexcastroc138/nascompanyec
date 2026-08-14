@@ -175,3 +175,8 @@ export interface Expense {
   detalles_json?: string;
 }
 
+
+export interface Categoria {
+  id: string | number;
+  nombre: string;
+}

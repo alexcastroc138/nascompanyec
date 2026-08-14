@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, CheckCheck, Smartphone, Bot, Sparkles, User, FileJson, AlertCircle } from 'lucide-react';
 import { Appointment, SaleItem, Sale } from '../types';
+import { getLocalISOString, getTodayStr } from '../utils/dateUtils';
+import { useCaja } from '../context/CajaContext';
 
 interface WhatsAppSimulatorProps {
   onAddAppointment: (appt: Appointment) => void;
@@ -9,6 +11,7 @@ interface WhatsAppSimulatorProps {
 }
 
 export default function WhatsAppSimulator({ onAddAppointment, onAddSale, onAddLog }: WhatsAppSimulatorProps) {
+  const { turnoId, isCajaAbierta } = useCaja();
   const [messages, setMessages] = useState<Array<{ sender: 'user' | 'bot'; text: string; json?: string; timestamp: string }>>([
     {
       sender: 'bot',
@@ -132,7 +135,7 @@ export default function WhatsAppSimulator({ onAddAppointment, onAddSale, onAddLo
   };
 
   const triggerHookAction = (json: any) => {
-    const timestampIso = new Date().toISOString();
+    const timestampIso = getLocalISOString();
     
     if (json.action === 'book_appointment') {
       // Create tomorrow date mathematically
@@ -184,6 +187,7 @@ export default function WhatsAppSimulator({ onAddAppointment, onAddSale, onAddLo
         id: saleId,
         specialistId: artistName.includes('Carlos') ? '2' : '1',
         specialistName: artistName,
+        turnoId: isCajaAbierta && turnoId ? turnoId : undefined,
         customerName: 'Cliente Rápido WhatsApp',
         customerId: '9999999999', // Consumidor final
         customerEmail: 'final@estudio.ec',

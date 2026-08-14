@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { User, POSItem, Sale, Appointment, CierreCaja, DynamicPromo, TimeEntry, EmailAlert, Expense } from '../types';
-import { Bell, Wallet, LayoutDashboard, Trash2, PieChart, Users, Plus, ChevronDown, Clock, TrendingUp, AlertTriangle, DollarSign, BarChart3, User as UserIcon, FileText, Download, Lock, Tag, Box, X, Calendar, Edit2, Package, ShieldCheck, Lightbulb, Target, Award } from 'lucide-react';
+import { User, POSItem, Sale, Appointment, CierreCaja, DynamicPromo, TimeEntry, EmailAlert, Expense, Categoria } from '../types';
+import { Bell, Wallet, LayoutDashboard, Trash2, PieChart, Users, Plus, ChevronDown, Clock, TrendingUp, AlertTriangle, DollarSign, BarChart3, User as UserIcon, FileText, Download, Lock, Tag, Box, X, Calendar, Edit2, Package, ShieldCheck, Lightbulb, Target, Award, Search } from 'lucide-react';
 import { MonitorCajas } from './MonitorCajas';
 import HistorialVentas from './pos/HistorialVentas';
 import CalendarModule from './calendar/CalendarModule';
+import { getLocalISOString, getTodayStr } from '../utils/dateUtils';
 
 interface AdminDashboardProps {
   activeTab: string;
@@ -15,7 +16,7 @@ interface AdminDashboardProps {
   sales: Sale[];
   cierres: CierreCaja[];
   promos: DynamicPromo[];
-  categories?: string[];
+  categories?: Categoria[];
   timeEntries: TimeEntry[];
   emailAlerts: EmailAlert[];
   expenses?: Expense[];
@@ -29,6 +30,8 @@ interface AdminDashboardProps {
   onTogglePromo: (id: string) => void;
   onDeletePromo: (id: string) => void;
   onAddCategory?: (category: string) => void;
+  onEditCategory?: (id: string | number, name: string) => void;
+  onDeleteCategory?: (id: string | number) => void;
   onAddUser: (user: User) => void;
   onEditUser?: (user: User) => void;
   onDeleteUser?: (id: string) => void;
@@ -67,6 +70,11 @@ export default function AdminDashboard(props: AdminDashboardProps) {
   // --- LÓGICA DE CATEGORÍAS (MODAL) ---
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+
+  // --- LÓGICA DE INVENTARIO: BÚSQUEDA Y PAGINACIÓN ---
+  const [busqueda, setBusqueda] = useState('');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const productosPorPagina = 10;
 
   // --- LÓGICA DE INVENTARIO Y RECETAS (MODAL) ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -225,7 +233,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
   };
 
   // Cálculos de Resumen General y BI
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = getTodayStr();
   const ventasHoy = props.sales.filter(s => s.timestamp && s.timestamp.startsWith(hoyStr));
   const totalSales = ventasHoy.reduce((acc, s) => acc + s.subtotal, 0);
   const totalCommissions = ventasHoy.reduce((acc, s) => acc + s.commission, 0);
@@ -234,7 +242,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
     id: 'stk_' + item.id,
     subject: 'Alerta de Stock Bajo',
     message: `El producto "${item.name}" tiene ${item.stock} unidades (Mínimo: ${item.minStock})`,
-    timestamp: new Date().toISOString()
+    timestamp: getLocalISOString()
   }));
 
   // BI Period Filtering
@@ -267,7 +275,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
 
   filteredSalesPeriod.forEach(s => {
     (s.items || []).forEach(item => {
-      const cat = (item.category || '').toLowerCase();
+      const catStr = typeof item.category === 'string' ? item.category : ((item.category as any)?.nombre || '');
+      const cat = catStr.toLowerCase();
       const itemSub = item.price * item.quantity;
       if (cat === 'boutique' || cat === 'ropa') {
         boutiqueTotal += itemSub;
@@ -288,7 +297,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
     let revenue = 0;
     props.sales.forEach(s => {
       const match = (s.items || []).some(i => {
-        const cat = (i.category || '').toLowerCase();
+        const catStr = typeof i.category === 'string' ? i.category : ((i.category as any)?.nombre || '');
+        const cat = catStr.toLowerCase();
         return promo.applicableCategory === 'all' || cat === promo.applicableCategory.toLowerCase();
       });
       if (match) {
@@ -317,7 +327,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
       {/* NUEVO TAB: RESUMEN DIARIO (overview) */}
       {activeTab === 'overview' && (() => {
         // Calcular datos del día
-        const hoy = new Date().toISOString().split('T')[0];
+        const hoy = getTodayStr();
         const ventasHoy = props.sales.filter(s => s.timestamp && s.timestamp.startsWith(hoy));
         const ingresosHoy = ventasHoy.reduce((sum, s) => sum + s.subtotal, 0);
         
@@ -479,7 +489,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
           const items = s.items || [];
           if (items.length === 0) return true;
           return items.some(i => {
-            const cat = (i.category || '').toLowerCase();
+            const catStr = typeof i.category === 'string' ? i.category : ((i.category as any)?.nombre || '');
+        const cat = catStr.toLowerCase();
             if (categoryFilter === 'estudio') {
               return cat === 'servicios' || cat === 'estudio' || cat === 'tatuajes' || cat === 'piercings' || (!['boutique', 'ropa', 'joyeria', 'jewelry', 'piezas', 'smoke', 'smokeshop'].includes(cat));
             }
@@ -550,7 +561,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         const productSalesMap: { [id: string]: { name: string; category: string; qty: number; revenue: number } } = {};
         filteredSales.forEach(s => {
           (s.items || []).forEach(it => {
-            const cat = (it.category || '').toLowerCase();
+            const catStr = typeof it.category === 'string' ? it.category : ((it.category as any)?.nombre || '');
+            const cat = catStr.toLowerCase();
             if (cat === 'boutique' || cat === 'ropa' || cat === 'piezas' || cat === 'joyería' || cat === 'joyeria' || cat === 'smoke shop') {
               if (!productSalesMap[it.itemId]) {
                 productSalesMap[it.itemId] = { name: it.name, category: it.category || 'Boutique', qty: 0, revenue: 0 };
@@ -696,7 +708,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
 
         filteredSales.forEach(s => {
           (s.items || []).forEach(item => {
-            const cat = (item.category || '').toLowerCase();
+            const catStr = typeof item.category === 'string' ? item.category : ((item.category as any)?.nombre || '');
+      const cat = catStr.toLowerCase();
             const val = item.price * item.quantity;
             if (cat === 'boutique' || cat === 'ropa') catBoutique += val;
             else if (cat === 'joyeria' || cat === 'jewelry' || cat === 'piezas') catJoyeria += val;
@@ -1528,89 +1541,164 @@ export default function AdminDashboard(props: AdminDashboardProps) {
           </div>
         );
       })()}
-      {/* TAB: INVENTARIO (Aquí va el código nuevo del modal) */}
-      {activeTab === 'inventory' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-6 border-b border-slate-100">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 font-display">Gestión Completa de Inventario</h2>
-              <p className="text-xs text-slate-500 mt-1">Administra el catálogo de servicios, piezas, y asocia insumos para descuento automático.</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setIsCategoryModalOpen(true)}
-                className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition cursor-pointer"
-              >
-                <Plus size={16} /> Nueva Categoría
-              </button>
-              <button
-                type="button"
-                onClick={() => openModal()}
-                className="px-4 py-2.5 bg-black hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition cursor-pointer"
-              >
-                <Plus size={16} /> Nuevo Producto / Servicio
-              </button>
-            </div>
-          </div>
+      {/* TAB: INVENTARIO */}
+      {activeTab === 'inventory' && (() => {
+        // 1. Primero filtramos con programación defensiva
+        const productosFiltrados = (props.items || []).filter((producto) => {
+          // Verificamos dinámicamente que el nombre y categoría sean string antes de buscar
+          const nombreSeguro = typeof producto.name === 'string' ? producto.name : (typeof (producto as any).nombre === 'string' ? (producto as any).nombre : '');
+          const categoriaSegura = typeof producto.category === 'string' ? producto.category : (typeof (producto as any).categoria === 'string' ? (producto as any).categoria : ((producto.category as any)?.nombre || ''));
+          const busquedaSegura = (typeof busqueda === 'string' ? busqueda : '').trim().toLowerCase();
+          
+          if (!busquedaSegura) return true;
+          return nombreSeguro.toLowerCase().includes(busquedaSegura) || categoriaSegura.toLowerCase().includes(busquedaSegura);
+        });
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-50 border-y border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold">
-                <tr>
-                  <th className="p-4">Producto / Servicio</th>
-                  <th className="p-4">Categoría</th>
-                  <th className="p-4">Precio</th>
-                  <th className="p-4 text-center">Stock</th>
-                  <th className="p-4 text-center">Tipo</th>
-                  <th className="p-4 text-center">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {props.items.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50/50 transition">
-                    <td className="p-4 font-bold text-slate-900">{item.name}</td>
-                    <td className="p-4">
-                      <span className="px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-bold uppercase text-slate-600">
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="p-4 font-mono font-bold">${item.price.toFixed(2)}</td>
-                    <td className="p-4 text-center font-bold">
-                      {item.unit === 'servicio' ? (
-                        <span className="text-slate-400 font-normal italic">N/A</span>
-                      ) : (
-                        <span className={item.stock <= item.minStock ? 'text-rose-600' : 'text-emerald-600'}>
-                          {item.stock}
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      {item.unit === 'servicio' && item.insumosAsociados && item.insumosAsociados.length > 0 ? (
-                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
-                          Servicio (Usa Insumos)
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-500 uppercase">{item.unit}</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      <div className="flex justify-center gap-2">
-                        <button onClick={() => openModal(item)} className="p-1.5 text-slate-400 hover:text-black hover:bg-slate-100 rounded-lg">
-                          <Edit2 size={14} />
-                        </button>
-                        <button onClick={() => props.onDeleteItem(item.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
+        // 2. Luego calculamos qué productos mostrar en la página actual
+        const indiceUltimoProducto = paginaActual * productosPorPagina;
+        const indicePrimerProducto = indiceUltimoProducto - productosPorPagina;
+        const productosPaginados = productosFiltrados.slice(indicePrimerProducto, indiceUltimoProducto);
+
+        // 3. Calculamos el total de páginas
+        const totalPaginas = Math.ceil(productosFiltrados.length / productosPorPagina) || 1;
+
+        return (
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-slate-100">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 font-display">Gestión Completa de Inventario</h2>
+                <p className="text-xs text-slate-500 mt-1">Administra el catálogo de servicios, piezas, y asocia insumos para descuento automático.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition cursor-pointer"
+                >
+                  <Tag size={16} /> Gestor de Categorías
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openModal()}
+                  className="px-4 py-2.5 bg-black hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition cursor-pointer"
+                >
+                  <Plus size={16} /> Nuevo Producto / Servicio
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de Búsqueda */}
+            <div className="mb-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar producto para rellenar o eliminar..."
+                  value={busqueda}
+                  onChange={(e) => {
+                    setBusqueda(e.target.value);
+                    setPaginaActual(1); // Regresar a la página 1 al buscar
+                  }}
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-xs"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="bg-slate-50 border-y border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold">
+                  <tr>
+                    <th className="p-4">Producto / Servicio</th>
+                    <th className="p-4">Categoría</th>
+                    <th className="p-4">Precio</th>
+                    <th className="p-4 text-center">Stock</th>
+                    <th className="p-4 text-center">Tipo</th>
+                    <th className="p-4 text-center">Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {productosPaginados.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400 font-medium">
+                        {busqueda ? `No se encontraron productos que coincidan con "${busqueda}".` : 'No hay productos en el inventario.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    productosPaginados.map(item => (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition">
+                        <td className="p-4 font-bold text-slate-900">{typeof item.name === 'string' ? item.name : ((item as any).nombre || 'Sin nombre')}</td>
+                        <td className="p-4">
+                          <span className="px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-bold uppercase text-slate-600">
+                            {typeof item.category === 'string' ? item.category : ((item.category as any)?.nombre || 'General')}
+                          </span>
+                        </td>
+                        <td className="p-4 font-mono font-bold">${(item.price || 0).toFixed(2)}</td>
+                        <td className="p-4 text-center font-bold">
+                          {item.unit === 'servicio' ? (
+                            <span className="text-slate-400 font-normal italic">N/A</span>
+                          ) : (
+                            <span className={(item.stock || 0) <= (item.minStock || 0) ? 'text-rose-600' : 'text-emerald-600'}>
+                              {item.stock || 0}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          {item.unit === 'servicio' && item.insumosAsociados && item.insumosAsociados.length > 0 ? (
+                            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                              Servicio (Usa Insumos)
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-500 uppercase">{item.unit}</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          <div className="flex justify-center gap-2">
+                            <button onClick={() => openModal(item)} className="p-1.5 text-slate-400 hover:text-black hover:bg-slate-100 rounded-lg cursor-pointer transition">
+                              <Edit2 size={14} />
+                            </button>
+                            <button onClick={() => props.onDeleteItem(item.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Controles de Paginación */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-slate-100 text-xs">
+              <div className="text-slate-500 font-medium">
+                Mostrando {productosFiltrados.length > 0 ? indicePrimerProducto + 1 : 0} a {Math.min(indiceUltimoProducto, productosFiltrados.length)} de {productosFiltrados.length} productos
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setPaginaActual(prev => Math.max(prev - 1, 1))}
+                  disabled={paginaActual === 1}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl disabled:opacity-40 disabled:hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Anterior
+                </button>
+                
+                <span className="px-3 py-1 font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg">
+                  Página {paginaActual} de {totalPaginas === 0 ? 1 : totalPaginas}
+                </span>
+                
+                <button 
+                  onClick={() => setPaginaActual(prev => Math.min(prev + 1, totalPaginas))}
+                  disabled={paginaActual === totalPaginas || totalPaginas === 0}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl disabled:opacity-40 disabled:hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB: CAJAS Y AUDITORÍA DE CIERRES */}
       {activeTab === 'cajas' && (
@@ -1620,98 +1708,9 @@ export default function AdminDashboard(props: AdminDashboardProps) {
             <p className="text-sm text-slate-500 mt-2">Verificación de cuadre físico de efectivo, diferencias reportadas y desglose completo de transacciones.</p>
           </div>
 
-          {/* MONITOR DE CAJAS EN TIEMPO REAL */}
+          {/* MONITOR DE CAJAS EN TIEMPO REAL CON HISTORIAL INTEGRADO DE BASE DE DATOS */}
           <div className="space-y-6">
              <MonitorCajas />
-          </div>
-
-          {/* TABLA AUDITORÍA DE CIERRES PAGINADA */}
-          <div className="space-y-6">
-            <h3 className="text-sm font-bold text-slate-900">Historial de Cierres de Turno (Auditoría de Cajas)</h3>
-            {(!props.cierres || props.cierres.length === 0) ? (
-              <div className="p-8 bg-slate-50 border border-slate-200 rounded-3xl text-center text-slate-500 text-sm font-bold">
-                No hay cierres de caja registrados en esta sesión.
-              </div>
-            ) : (
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold text-xs">
-                      <tr>
-                        <th className="p-4">Fecha / Hora</th>
-                        <th className="p-4">Especialista</th>
-                        <th className="p-4 text-right">Efectivo Esperado</th>
-                        <th className="p-4 text-right">Efectivo Entregado</th>
-                        <th className="p-4 text-center">Diferencia</th>
-                        <th className="p-4 text-center">Estado</th>
-                        <th className="p-4">Notas</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {props.cierres.slice((cajasCurrentPage - 1) * cajasItemsPerPage, cajasCurrentPage * cajasItemsPerPage).map(c => {
-                        const submitted = c.cashSubmitted ?? c.cashExpected;
-                        const diff = submitted - c.cashExpected;
-                        return (
-                          <tr key={c.id} className="hover:bg-slate-50 transition">
-                            <td className="p-4 text-slate-600 font-mono">
-                              {c.endTime ? new Date(c.endTime).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : 'En curso'}
-                            </td>
-                            <td className="p-4 font-bold text-slate-900">{c.specialistName}</td>
-                            <td className="p-4 text-right font-mono font-medium">${c.cashExpected.toFixed(2)}</td>
-                            <td className="p-4 text-right font-mono font-bold text-slate-900">${submitted.toFixed(2)}</td>
-                            <td className="p-4 text-center">
-                              {Math.abs(diff) < 0.01 ? (
-                                <span className="text-slate-400 font-mono font-bold">-</span>
-                              ) : diff > 0 ? (
-                                <span className="text-blue-600 font-mono font-bold">+{diff.toFixed(2)}</span>
-                              ) : (
-                                <span className="text-rose-600 font-mono font-bold">{diff.toFixed(2)}</span>
-                              )}
-                            </td>
-                            <td className="p-4 text-center">
-                              {Math.abs(diff) < 0.01 ? (
-                                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold uppercase">Cuadrado</span>
-                              ) : diff > 0 ? (
-                                <span className="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold uppercase">Sobrante</span>
-                              ) : (
-                                <span className="px-2.5 py-1 bg-rose-100 text-rose-700 rounded-full text-xs font-bold uppercase">Faltante</span>
-                              )}
-                            </td>
-                            <td className="p-4 text-slate-500 text-xs max-w-xs truncate" title={c.notes}>
-                              {c.notes || '-'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {/* Pagination Controls */}
-                {props.cierres.length > cajasItemsPerPage && (
-                  <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-500">
-                      Mostrando {((cajasCurrentPage - 1) * cajasItemsPerPage) + 1} - {Math.min(cajasCurrentPage * cajasItemsPerPage, props.cierres.length)} de {props.cierres.length} cierres
-                    </span>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setCajasCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={cajasCurrentPage === 1}
-                        className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Anterior
-                      </button>
-                      <button
-                        onClick={() => setCajasCurrentPage(p => Math.min(Math.ceil(props.cierres.length / cajasItemsPerPage), p + 1))}
-                        disabled={cajasCurrentPage === Math.ceil(props.cierres.length / cajasItemsPerPage)}
-                        className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Siguiente
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="pt-8 border-t border-slate-200">
@@ -2116,8 +2115,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-black"
                   >
                     <option value="">Seleccione o cree una...</option>
-                    {(props.categories && props.categories.length > 0 ? props.categories : ['Servicios', 'Joyería', 'Piezas', 'Smoke Shop', 'Boutique', 'Ropa']).map(c => (
-                      <option key={c} value={c}>{c}</option>
+                    {(props.categories || []).map(c => (
+                      <option key={c.id} value={c.nombre}>{c.nombre}</option>
                     ))}
                   </select>
                 </div>
@@ -2315,8 +2314,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-black"
                   >
                     <option value="all">Todas las categorías</option>
-                    {(props.categories && props.categories.length > 0 ? props.categories : ['Servicios', 'Joyería', 'Piezas', 'Smoke Shop', 'Boutique', 'Ropa']).map(c => (
-                      <option key={c} value={c}>{c}</option>
+                    {(props.categories || []).map(c => (
+                      <option key={c.id} value={c.nombre}>{c.nombre}</option>
                     ))}
                   </select>
                 </div>
@@ -2382,45 +2381,96 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         </div>
       )}
 
-      {/* MODAL DE NUEVA CATEGORÍA */}
+      {/* MODAL GESTOR DE CATEGORÍAS */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-              <h3 className="font-bold text-slate-900 text-base font-display">Crear Nueva Categoría</h3>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-150 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 shrink-0">
+              <h3 className="font-bold text-slate-900 text-base font-display">Gestor de Categorías</h3>
               <button onClick={() => { setIsCategoryModalOpen(false); setNewCategoryName(''); }} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer">
                 <X size={18} />
               </button>
             </div>
+            
             <form onSubmit={(e) => {
               e.preventDefault();
               if (newCategoryName.trim()) {
                 props.onAddCategory?.(newCategoryName.trim());
                 setNewCategoryName('');
-                setIsCategoryModalOpen(false);
               }
-            }}>
-              <div className="space-y-1.5 mb-5">
-                <label className="text-xs font-bold text-slate-700 block">Nombre de la Categoría *</label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="Ej. Ropa, Bebidas, Insumos Médicos..."
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-black"
-                />
-              </div>
-              <div className="flex gap-3">
-                <button type="button" onClick={() => { setIsCategoryModalOpen(false); setNewCategoryName(''); }} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer">
-                  Cancelar
-                </button>
-                <button type="submit" className="flex-1 py-2 bg-black hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs">
-                  Guardar Categoría
-                </button>
-              </div>
+            }} className="flex gap-2 mb-4 shrink-0">
+              <input
+                type="text"
+                required
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="Nueva categoría..."
+                className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-black"
+              />
+              <button type="submit" className="px-4 py-2 bg-black hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition cursor-pointer whitespace-nowrap">
+                Añadir
+              </button>
             </form>
+            
+            <div className="flex-1 overflow-y-auto min-h-0 border border-slate-100 rounded-xl">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold sticky top-0">
+                  <tr>
+                    <th className="p-3">ID</th>
+                    <th className="p-3">Nombre</th>
+                    <th className="p-3 text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(props.categories || []).map(cat => (
+                    <tr key={cat.id} className="hover:bg-slate-50/50 transition">
+                      <td className="p-3 text-slate-400 font-mono">#{cat.id}</td>
+                      <td className="p-3 font-bold text-slate-900">
+                        {cat.nombre}
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex justify-center gap-2">
+                          <button 
+                            onClick={() => {
+                              const newName = prompt('Editar nombre de categoría:', cat.nombre);
+                              if (newName && newName.trim() !== '') {
+                                props.onEditCategory?.(cat.id, newName.trim());
+                              }
+                            }} 
+                            className="p-1.5 text-slate-400 hover:text-black hover:bg-slate-100 rounded-lg"
+                            title="Editar"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (confirm(`¿Eliminar la categoría "${cat.nombre}"?`)) {
+                                props.onDeleteCategory?.(cat.id);
+                              }
+                            }} 
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!props.categories || props.categories.length === 0) && (
+                    <tr>
+                      <td colSpan={3} className="p-6 text-center text-slate-400 italic">No hay categorías registradas</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-4 pt-3 border-t border-slate-100 shrink-0">
+              <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer">
+                Cerrar Gestor
+              </button>
+            </div>
           </div>
         </div>
       )}

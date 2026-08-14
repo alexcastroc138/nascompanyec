@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Calendar, DollarSign, CreditCard, ArrowUpRight, ArrowDownLeft, CheckCircle2, MinusCircle } from 'lucide-react';
 import { Sale, Expense } from '../../types';
+import { getLocalISOString, getTodayStr } from '../../utils/dateUtils';
 
 interface HistorialVentasProps {
   sales?: Sale[];
@@ -22,7 +23,7 @@ interface TransaccionUnificada {
 
 export default function HistorialVentas({ sales = [], expenses = [] }: HistorialVentasProps) {
   // 1. LÓGICA DE FILTRADO Y CÁLCULO
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayStr();
   const [fechaFiltro, setFechaFiltro] = useState<string>(todayStr);
 
   const safeSales = Array.isArray(sales) ? sales : [];
@@ -35,7 +36,7 @@ export default function HistorialVentas({ sales = [], expenses = [] }: Historial
       monto: v.subtotal || 0,
       paymentMethod: v.paymentMethod || 'cash',
       descripcion: v.items?.map(i => i.name).join(', ') || 'Servicio General',
-      timestamp: v.timestamp || new Date().toISOString(),
+      timestamp: v.timestamp || getLocalISOString(),
       specialistName: v.specialistName,
       sriStatus: v.sriStatus
     })),
@@ -45,7 +46,7 @@ export default function HistorialVentas({ sales = [], expenses = [] }: Historial
       monto: g.amount || 0,
       paymentMethod: 'cash',
       descripcion: g.title ? `Gasto: ${g.title}` : 'Salida de caja',
-      timestamp: g.timestamp || new Date().toISOString(),
+      timestamp: g.timestamp || getLocalISOString(),
       specialistName: g.specialistName
     }))
   ];

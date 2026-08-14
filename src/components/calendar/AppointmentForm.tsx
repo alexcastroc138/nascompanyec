@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Appointment, InventoryItem } from '../../types/appointment';
 import { Calendar, Clock, User, Phone, DollarSign, FileText, Sparkles, UserCheck, AlertCircle } from 'lucide-react';
 import { generarLinkGoogleCalendar } from '../../utils/calendarUtils';
+import { getLocalISOString, getTodayStr } from '../../utils/dateUtils';
 
 interface AppointmentFormProps {
   initialData?: Partial<Appointment>;

@@ -5,7 +5,7 @@ import {
   INITIAL_SALES, INITIAL_CIERRES, INITIAL_WEB_LOGS,
   INITIAL_PROMOS, INITIAL_TIME_ENTRIES, INITIAL_EMAIL_ALERTS 
 } from './data';
-import { User, POSItem, Sale, Appointment, CierreCaja, WebhookLog, DynamicPromo, TimeEntry, EmailAlert, Expense } from './types';
+import { User, POSItem, Sale, Appointment, CierreCaja, WebhookLog, DynamicPromo, TimeEntry, EmailAlert, Expense, Categoria } from './types';
 import { getSessionToken, clearSessionToken } from './lib/auth';
 import BottomNav from './components/layout/BottomNav';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -17,6 +17,7 @@ import LoginPage from './components/LoginPage';
 import SpecialistDashboard from './components/SpecialistDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import SettingsPage from './components/SettingsPage';
+import { getLocalISOString, getTodayStr } from './utils/dateUtils';
 
 export default function App() {
   // Authentication & Session state
@@ -26,16 +27,78 @@ export default function App() {
   const [adminActiveTab, setAdminActiveTab] = useState<'overview' | 'reports' | 'cajas' | 'inventory' | 'promos' | 'agents' | 'time' | 'calendar' | 'alerts' | 'sri' | 'settings'>('overview');
   const [isAdminMobileMenuOpen, setIsAdminMobileMenuOpen] = useState<boolean>(false);
 
+  const forzarLogout = () => {
+    clearSessionToken();
+    localStorage.removeItem('user');
+    localStorage.removeItem('loginTimestamp');
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+  };
+
   useEffect(() => {
+    // 1. Cargar sesión inicial de cookies / localStorage
     const session = getSessionToken();
-    if (session) {
-      setIsAuthenticated(true);
-      setCurrentRole(session.role as 'admin' | 'specialist');
-      setCurrentUser(session);
+    const storedUserStr = localStorage.getItem('user');
+    const loginTimestamp = localStorage.getItem('loginTimestamp');
+
+    if (session || storedUserStr) {
+      const activeUser = session || (storedUserStr ? JSON.parse(storedUserStr) : null);
+      if (activeUser) {
+        setIsAuthenticated(true);
+        setCurrentRole((activeUser.role === 'admin' ? 'admin' : 'specialist'));
+        setCurrentUser(activeUser);
+      }
     } else {
       setIsAuthenticated(false);
       setCurrentUser(null);
     }
+
+    // 2. Módulo de Seguridad: Validar expiración de 8 horas e integridad con backend
+    const verificarSesion = async () => {
+      const userDataStr = localStorage.getItem('user');
+      const ts = localStorage.getItem('loginTimestamp');
+
+      if (!userDataStr || !ts) return;
+
+      try {
+        const userData = JSON.parse(userDataStr);
+        const tiempoActual = Date.now();
+        const tiempoTranscurrido = tiempoActual - parseInt(ts, 10);
+        
+        // Límite de 8 horas en milisegundos (8 * 60 * 60 * 1000 = 28800000)
+        if (tiempoTranscurrido > 28800000) {
+          console.warn("Sesión expirada por tiempo (límite de 8 horas). Cerrando sesión...");
+          forzarLogout();
+          return;
+        }
+
+        // Validación contra el backend PHP (/api/auth/verify.php)
+        const baseUrl = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : '');
+        const endpoint = `${baseUrl}/api/auth/verify.php`;
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: userData.token || userData.id, id: userData.id })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            if (result.status !== 'success') {
+              console.warn("Integridad de sesión fallida según el servidor. Cerrando sesión...");
+              forzarLogout();
+            }
+          }
+        } catch (error) {
+          console.warn("Validación de sesión con backend offline / bypass:", error);
+        }
+      } catch (error) {
+        console.error("Error al validar sesión contra el servidor:", error);
+      }
+    };
+
+    verificarSesion();
   }, []);
 
   // App-level Persistent Shared States using useLocalStorage
@@ -64,6 +127,7 @@ export default function App() {
       dbService.getCitas().then(data => { if (data) setAppointments(data); });
       dbService.getVentas().then(data => { if (data) setSales(data); });
       dbService.getInventario().then(data => { if (data) setItems(data); });
+      dbService.getCategorias().then(data => { if (data && data.length > 0) setCategories(data); });
       dbService.getUsuarios().then(data => { 
         if (data && data.length > 0) {
           setUsers(data.map(u => ({
@@ -79,15 +143,35 @@ export default function App() {
   const [cierres, setCierres] = useLocalStorage<CierreCaja[]>('studio_cierres', INITIAL_CIERRES);
   const [webhookLogs] = useState<WebhookLog[]>(INITIAL_WEB_LOGS);
   const [promos, setPromos] = useLocalStorage<DynamicPromo[]>('studio_promos', INITIAL_PROMOS);
-  const [categories, setCategories] = useLocalStorage<string[]>('studio_categories', ['Servicios', 'Joyería', 'Piezas', 'Smoke Shop', 'Boutique', 'Ropa']);
+  const [categories, setCategories] = useState<Categoria[]>([]);
   const [timeEntries] = useState<TimeEntry[]>(INITIAL_TIME_ENTRIES);
 
-  const handleAddCategory = (cat: string) => {
+  const handleAddCategory = async (cat: string) => {
     if (cat && cat.trim() !== '') {
       const cleanCat = cat.trim();
-      if (!categories.includes(cleanCat)) {
-        setCategories([...categories, cleanCat]);
+      const existing = categories.find(c => (typeof c === 'string' ? c : (c.nombre || '')).toLowerCase() === cleanCat.toLowerCase());
+      if (!existing) {
+        const newCat = await dbService.saveCategoria(cleanCat);
+        if (newCat) {
+          setCategories([...categories, newCat]);
+        }
       }
+    }
+  };
+
+  const handleEditCategory = async (id: string | number, newName: string) => {
+    if (newName && newName.trim() !== '') {
+      const success = await dbService.updateCategoria(id, newName.trim());
+      if (success) {
+        setCategories(categories.map(c => c.id === id ? { ...c, nombre: newName.trim() } : c));
+      }
+    }
+  };
+
+  const handleDeleteCategory = async (id: string | number) => {
+    const success = await dbService.deleteCategoria(id);
+    if (success) {
+      setCategories(categories.filter(c => c.id !== id));
     }
   };
 
@@ -108,7 +192,7 @@ export default function App() {
     id: 'c_active_initial',
     specialistId: '1',
     specialistName: 'Ámbar Piercing',
-    startTime: new Date().toISOString(),
+    startTime: getLocalISOString(),
     totalSales: 0,
     totalCommissions: 0,
     cashExpected: 0,
@@ -121,13 +205,13 @@ export default function App() {
     setCurrentRole(user.role as 'admin' | 'specialist');
     setIsAuthenticated(true);
     setAdminActiveTab('overview');
+    localStorage.setItem('user', JSON.stringify(user));
+    localStorage.setItem('loginTimestamp', Date.now().toString());
     triggerNotification(`Sesión iniciada correctamente como ${user.role === 'admin' ? 'Administrador' : 'Especialista'}.`);
   };
 
   const handleLogout = () => {
-    clearSessionToken();
-    setIsAuthenticated(false);
-    setCurrentUser(null);
+    forzarLogout();
     triggerNotification('Sesión cerrada correctamente.');
   };
 
@@ -176,7 +260,7 @@ export default function App() {
           type: 'low_stock',
           subject: `⚠️ Alerta Stock Bajo: ${newItem.name}`,
           message: `El producto ${newItem.name} se encuentra con stock crítico de ${newItem.stock} unidades (mínimo ${newItem.minStock}).`,
-          timestamp: new Date().toISOString(),
+          timestamp: getLocalISOString(),
           read: false
         },
         ...emailAlerts
@@ -303,7 +387,7 @@ export default function App() {
           paymentMethod: salePaymentMethod as any,
           cashReceived: isEfectivo ? initialDeposit : undefined,
           changeGiven: 0,
-          timestamp: new Date().toISOString(),
+          timestamp: getLocalISOString(),
           sriStatus: 'enviado_sri' as any,
           invoiceNumber: mockInvoice
         });
@@ -359,7 +443,7 @@ export default function App() {
       paymentMethod: salePaymentMethod as any,
       cashReceived: isEfectivo ? monto : undefined,
       changeGiven: 0,
-      timestamp: new Date().toISOString(),
+      timestamp: getLocalISOString(),
       sriStatus: 'enviado_sri' as any,
       invoiceNumber: mockInvoice
     });
@@ -405,7 +489,7 @@ export default function App() {
 
     const finalTurn: CierreCaja = {
       ...activeTurn,
-      endTime: new Date().toISOString(),
+      endTime: getLocalISOString(),
       cashSubmitted: efectivoEntregado,
       physicalDifference: efectivoEntregado - activeTurn.cashExpected,
       notes: notas,
@@ -417,6 +501,8 @@ export default function App() {
     
     await dbService.cerrarTurno({
       id: finalTurn.id,
+      usuario_id: finalTurn.specialistId || currentUser?.id,
+      specialistId: finalTurn.specialistId || currentUser?.id,
       timestampCierre: finalTurn.endTime,
       expectedCash: finalTurn.cashExpected,
       actualCash: finalTurn.cashSubmitted,
@@ -428,13 +514,13 @@ export default function App() {
   };
 
   const handleReabrirCaja = async (specialist?: User) => {
-    const specId = specialist?.id || '1';
-    const specName = specialist?.name || 'Ámbar Piercing';
+    const specId = specialist?.id || currentUser?.id || '1';
+    const specName = specialist?.name || currentUser?.name || 'Ámbar Piercing';
     const freshTurn: CierreCaja = {
       id: 'c_active_' + Date.now(),
       specialistId: specId,
       specialistName: specName,
-      startTime: new Date().toISOString(),
+      startTime: getLocalISOString(),
       totalSales: 0,
       totalCommissions: 0,
       cashExpected: 0,
@@ -444,7 +530,9 @@ export default function App() {
     
     await dbService.abrirTurno({
       id: freshTurn.id,
+      usuario_id: freshTurn.specialistId,
       specialistId: freshTurn.specialistId,
+      usuario_nombre: freshTurn.specialistName,
       specialistName: freshTurn.specialistName,
       timestamp: freshTurn.startTime
     });
@@ -762,6 +850,8 @@ export default function App() {
                     onTogglePromo={handleTogglePromo}
                     onDeletePromo={handleDeletePromo}
                     onAddCategory={handleAddCategory}
+                    onEditCategory={handleEditCategory}
+                    onDeleteCategory={handleDeleteCategory}
                     onAddUser={handleAddUser}
                     onEditUser={handleEditUser}
                     onDeleteUser={handleDeleteUser}

@@ -1,4 +1,5 @@
 import { Appointment } from '../types';
+import { getLocalISOString, getTodayStr } from './dateUtils';
 
 export interface CitaCalendarData {
   cliente?: string;
@@ -65,7 +66,7 @@ export function generarLinkGoogleCalendar(cita: CitaCalendarData | Partial<Appoi
   if (c.fechaHoraInicio) {
     startDate = typeof c.fechaHoraInicio === 'string' ? new Date(c.fechaHoraInicio) : c.fechaHoraInicio;
   } else {
-    const fechaStr = c.fecha || c.date || new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const fechaStr = c.fecha || c.date || getTodayStr(); // YYYY-MM-DD
     const horaStr = c.hora || c.time || '10:00'; // HH:mm
     const [year, month, day] = fechaStr.split('-').map(Number);
     const [hours, minutes] = horaStr.split(':').map(Number);

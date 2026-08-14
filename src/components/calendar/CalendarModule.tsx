@@ -6,6 +6,7 @@ import { Appointment } from '../../types/appointment';
 import AppointmentModal from './AppointmentModal';
 import AppointmentForm from './AppointmentForm';
 import { generarLinkGoogleCalendar } from '../../utils/calendarUtils';
+import { getLocalISOString, getTodayStr } from '../../utils/dateUtils';
 import { 
   Plus, Calendar, Search, Edit2, Trash2, DollarSign, 
   CheckCircle, Clock, AlertCircle, Phone, User, Filter, Eye 
